@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>จองล็อคตลาดนัดลาดสวายวินเทจ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&family=Sarabun:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Firebase SDKs (Compat version for easier integration) -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+
+    <?!= include('Styles'); ?>
+</head>
+<body>
+    <header class="bg-white shadow-sm sticky top-0 z-50">
+        <!-- (Header Code unchanged) -->
+        <div class="container mx-auto px-4 py-1.5">
+            <div class="flex flex-col md:flex-row justify-between items-center gap-2">
+                <div class="flex items-center space-x-2 min-w-fit">
+                    <img src="https://img2.pic.in.th/pic/Profile-Alpha_0.png" alt="Logo" class="h-8 w-8 object-contain drop-shadow-sm">
+                    <div>
+                        <h1 class="text-base font-bold text-gray-800 leading-none">ตลาดนัดลาดสวายวินเทจ</h1>
+                        <p class="text-[9px] text-gray-500">ระบบจองล็อคออนไลน์</p>
+                    </div>
+                </div>
+                
+                <div class="flex items-center gap-3 w-full md:w-auto overflow-visible relative">
+                    <div class="flex items-center overflow-hidden">
+                         <button onclick="shiftDates(-1)" id="btnPrevDate" class="hidden text-gray-400 hover:text-blue-500 px-2 transition-colors"><i class="fa-solid fa-chevron-left"></i></button>
+                         <div id="quick-dates" class="flex flex-nowrap justify-start md:justify-center gap-3 items-center overflow-x-auto px-1 py-1 scroll-smooth w-full md:w-auto no-scrollbar"></div>
+                         <button onclick="shiftDates(1)" id="btnNextDate" class="hidden text-gray-400 hover:text-blue-500 px-2 transition-colors"><i class="fa-solid fa-chevron-right"></i></button>
+                    </div>
+                    
+                    <div class="relative hidden md:block group">
+                        <input type="text" id="mapSearchInput" placeholder="ค้นหาล็อค/ลูกค้า..." onkeyup="handleMapSearchInput(event)" onfocus="handleMapSearchInput(event)"
+                               class="pl-9 pr-4 py-1.5 rounded-full border border-gray-300 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white w-56 shadow-sm">
+                        <i class="fa-solid fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+                        <div id="mapSearchResults" class="absolute top-full left-0 w-full bg-white shadow-xl rounded-lg mt-1 hidden max-h-80 overflow-y-auto border border-gray-100 z-[60]"></div>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button id="btnDashboard" onclick="openDashboardModal()" class="hidden text-blue-600 hover:text-blue-800 p-1.5 relative group transition-colors" title="รายงานสรุป (เปิดหน้าใหม่)">
+                        <i class="fa-solid fa-chart-pie text-lg"></i>
+                        <span class="absolute right-0 top-8 bg-gray-800 text-white text-[10px] px-2 py-1 rounded shadow-lg opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 whitespace-nowrap">รายงานสรุป</span>
+                    </button>
+
+                    <button id="btnSettings" onclick="openSettingsModal()" class="hidden text-gray-500 hover:text-gray-700 p-1.5 relative group transition-colors" title="ตั้งค่าระบบ">
+                        <i class="fa-solid fa-gear text-lg"></i>
+                        <span class="absolute right-0 top-8 bg-gray-800 text-white text-[10px] px-2 py-1 rounded shadow-lg opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 whitespace-nowrap">ตั้งค่าระบบ</span>
+                    </button>
+                    
+                    <button id="btnStorageTop" onclick="openStorageManagementModal()" class="hidden text-orange-500 hover:text-orange-700 p-1.5 relative group transition-colors" title="จัดการฝากของ">
+                        <i class="fa-solid fa-boxes-packing text-lg"></i>
+                        <span class="absolute right-0 top-8 bg-gray-800 text-white text-[10px] px-2 py-1 rounded shadow-lg opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 whitespace-nowrap">จัดการฝากของ</span>
+                    </button>
+
+                    <button id="btnMonthlyTop" onclick="openMonthlyManagementModal()" class="hidden text-purple-600 hover:text-purple-800 p-1.5 relative group transition-colors" title="จัดการรายเดือน">
+                        <i class="fa-solid fa-calendar-days text-lg"></i>
+                        <span class="absolute right-0 top-8 bg-gray-800 text-white text-[10px] px-2 py-1 rounded shadow-lg opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 whitespace-nowrap">จัดการรายเดือน</span>
+                    </button>
+                    
+                    <button id="btnArchive" onclick="confirmArchive()" class="hidden text-gray-400 hover:text-red-600 p-1.5 relative group transition-colors" title="จัดเก็บข้อมูลเก่า">
+                        <i class="fa-solid fa-box-archive text-lg"></i>
+                        <span class="absolute right-0 top-8 bg-gray-800 text-white text-[10px] px-2 py-1 rounded shadow-lg opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 whitespace-nowrap">Archive (ล้างข้อมูลเก่า)</span>
+                    </button>
+
+                    <button id="btnRefreshCache" onclick="confirmClearCache()" class="hidden text-green-500 hover:text-green-700 p-1.5 relative group transition-colors" title="อัปเดตผังตลาด (ล้าง Cache)">
+                        <i class="fa-solid fa-arrows-rotate text-lg"></i>
+                        <span class="absolute right-0 top-8 bg-gray-800 text-white text-[10px] px-2 py-1 rounded shadow-lg opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 whitespace-nowrap">อัปเดตผังตลาด</span>
+                    </button>
+
+                    <button onclick="toggleAdminPanel()" class="text-gray-400 hover:text-blue-600 p-1.5 relative group transition-colors">
+                        <img id="userAvatar" src="" class="w-6 h-6 rounded-full hidden border border-gray-300">
+                        <i id="defaultUserIcon" class="fa-solid fa-user-gear text-lg"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Mobile Toolbar -->
+            <div class="md:hidden flex justify-between items-center mt-1 border-t border-gray-100 pt-1">
+                 <button onclick="document.getElementById('mobileSearchBar').classList.toggle('hidden'); document.getElementById('mapSearchInputMobile').focus();" class="flex items-center gap-1 text-gray-500 hover:text-blue-600 px-2 py-1 rounded text-xs font-bold">
+                     <i class="fa-solid fa-search"></i> ค้นหา
+                 </button>
+
+                 <div class="flex gap-2">
+                     <button id="btnDashboardMobile" onclick="openDashboardModal()" class="hidden items-center justify-center text-blue-600 hover:text-blue-800 p-1.5 relative group transition-colors" title="Dashboard"><i class="fa-solid fa-chart-pie text-lg"></i></button>
+                     <button id="btnSettingsMobile" onclick="openSettingsModal()" class="hidden items-center justify-center text-gray-500 hover:text-gray-700 p-1.5 relative group transition-colors" title="ตั้งค่าระบบ"><i class="fa-solid fa-gear text-lg"></i></button>
+                     <button id="btnRefreshCacheMobile" onclick="confirmClearCache()" class="hidden items-center justify-center text-green-500 hover:text-green-700 p-1.5 relative group transition-colors" title="อัปเดตผังตลาด"><i class="fa-solid fa-arrows-rotate text-lg"></i></button>
+                     <button id="btnStorageTopMobile" onclick="openStorageManagementModal()" class="hidden items-center justify-center text-orange-500 hover:text-orange-700 p-1.5 relative group transition-colors" title="จัดการฝากของ"><i class="fa-solid fa-boxes-packing text-lg"></i></button>
+                     <button id="btnMonthlyTopMobile" onclick="openMonthlyManagementModal()" class="hidden items-center justify-center text-purple-600 hover:text-purple-800 p-1.5 relative group transition-colors" title="จัดการรายเดือน"><i class="fa-solid fa-calendar-days text-lg"></i></button>
+                 </div>
+            </div>
+            
+            <div id="mobileSearchBar" class="hidden md:hidden mt-2 p-1">
+                <div class="relative w-full">
+                    <input type="text" id="mapSearchInputMobile" placeholder="ค้นหาล็อค/ลูกค้า..." onkeyup="handleMapSearchInput(event)"
+                           class="w-full pl-9 pr-4 py-2 rounded-lg border border-gray-300 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white shadow-inner">
+                    <i class="fa-solid fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+                </div>
+            </div>
+        </div>
+        <div id="status-legend" class="bg-gray-50 border-b border-gray-200">
+            <div class="container mx-auto px-2 py-1">
+                <div class="flex flex-wrap gap-x-3 gap-y-1 text-[10px] justify-center">
+                    <div class="flex items-center"><span class="w-2 h-2 bg-[#00FF00] mr-1 border rounded-sm"></span>อาหาร(ว่าง)</div>
+                    <div class="flex items-center"><span class="w-2 h-2 bg-[#00FFFF] mr-1 border rounded-sm"></span>เสื้อผ้า(ว่าง)</div>
+                    <div class="flex items-center"><span class="w-2 h-2 bg-[#FF9900] mr-1 border rounded-sm"></span>ค้างชำระ</div>
+                    <div class="flex items-center"><span class="w-2 h-2 bg-[#FF0000] mr-1 border rounded-sm"></span>ไม่ว่าง</div>
+                    <div class="flex items-center"><span class="w-2 h-2 bg-[#EE82EE] mr-1 border rounded-sm"></span>รายเดือน</div>
+                    <div class="flex items-center"><span class="w-2 h-2 bg-white border border-gray-400 mr-1 rounded-sm flex items-center justify-center text-[8px]">ฝ</span>มีของฝาก</div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container mx-auto p-2 mb-20 mt-2">
+        <div id="grid-container" class="market-grid rounded-lg shadow-inner bg-gray-300 min-h-[500px] relative"></div>
+        <input type="date" id="selectDate" class="hidden">
+    </div>
+
+    <!-- INCLUDE PARTIALS (MODALS) -->
+    <?!= include('Part_Modal_Booking_Daily'); ?>
+    <?!= include('Part_Modal_Booking_Monthly'); ?>
+    <?!= include('Part_Modal_Monthly_View'); ?> 
+    <?!= include('Part_Modal_MonthlyList'); ?>
+    <?!= include('Part_Modal_BillPreview'); ?> 
+    <?!= include('Part_Modal_Renewal'); ?>
+    <?!= include('Part_Modal_Payment'); ?>
+    <?!= include('Part_Modal_Utils'); ?>
+    <?!= include('Part_Modal_TicketPreview'); ?>
+    <?!= include('Part_Modal_Move'); ?>
+    <?!= include('Part_Modal_Storage'); ?> 
+    <?!= include('Part_Modal_StorageManagement'); ?>
+    <?!= include('Part_Modal_StorageMove'); ?>
+    <?!= include('Part_Modal_AddUtility'); ?>
+    <?!= include('Part_Modal_Settings'); ?> 
+    
+    <!-- INCLUDE SCRIPTS -->
+    <?!= include('Template_Ticket_Daily'); ?>
+    <?!= include('Template_Ticket_Monthly'); ?>
+    <?!= include('Template_Ticket_Storage'); ?>
+    <?!= include('Template_Report'); ?>
+    <?!= include('Scripts_Print_Shared'); ?>
+    <?!= include('Scripts_Print_Daily'); ?>
+    <?!= include('Scripts_Print_Monthly'); ?>
+    <?!= include('Scripts_Print_Storage'); ?>
+    <?!= include('Scripts_Print_Report'); ?>
+    <?!= include('Scripts_Utils'); ?>
+    <?!= include('Scripts_UI'); ?>
+    <?!= include('Scripts_Session'); ?>
+    <?!= include('Scripts_Settings'); ?> 
+    <?!= include('Scripts_Dashboard'); ?> 
+    <?!= include('Scripts_Storage'); ?>
+    <?!= include('Scripts_StorageManagement'); ?>
+    <?!= include('Scripts_StorageMove'); ?> 
+    <?!= include('Scripts_AddUtility'); ?>
+    <?!= include('Scripts_Booking_Stalls_Shared'); ?>
+    <?!= include('Scripts_Booking_Stalls_Daily'); ?>
+    <?!= include('Scripts_Booking_Stalls_Monthly'); ?>
+    <?!= include('Scripts_Daily_Actions'); ?>
+    <?!= include('Scripts_Monthly_Actions'); ?>
+    <?!= include('Scripts_Shared_Actions'); ?>
+    <?!= include('Scripts_Move'); ?> 
+    <?!= include('Scripts_Archive'); ?>        
+    <?!= include('Scripts_Monthly'); ?>
+    <?!= include('Scripts_Payment'); ?>
+    <?!= include('Scripts_Renewal'); ?>
+    <?!= include('Scripts_MapSearch'); ?>
+    <?!= include('Scripts_OtherIncome'); ?>
+    <?!= include('Scripts_Expense'); ?>
+    <?!= include('Scripts_Main'); ?>
+</body>
+</html>

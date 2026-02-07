@@ -1,0 +1,378 @@
+<script>
+    // --- Scripts_Monthly ---
+    // Update: Replaced all alerts with showAlert/showConfirm
+
+    let currentSortColumn = null;
+    let currentSortDir = 'asc';
+
+    function openMonthlyManagementModal() {
+        if (!currentAdmin) {
+            const sessionJson = localStorage.getItem('market_admin_session');
+            if (sessionJson) {
+                try {
+                    const session = JSON.parse(sessionJson);
+                    currentAdmin = { name: session.name, role: session.role, employeeId: session.employeeId };
+                } catch(e) {}
+            }
+            if(!currentAdmin) {
+                // FIX: Use Custom Alert
+                showAlert("กรุณาเข้าสู่ระบบก่อนใช้งานเมนูนี้", "แจ้งเตือน", true);
+                toggleAdminPanel();
+                return;
+            }
+        }
+        
+        try {
+            const btnRecalc = document.getElementById('btnBatchRecalc');
+            if (btnRecalc) {
+                if (currentAdmin.role === 'Super Admin') {
+                    btnRecalc.classList.remove('hidden');
+                } else {
+                    btnRecalc.classList.add('hidden');
+                }
+            }
+            fetchMonthlyBookings();
+            
+            if(typeof showModal === 'function') showModal('monthlyManagementModal');
+            else document.getElementById('monthlyManagementModal').classList.remove('hidden');
+            
+        } catch (e) {
+            console.error(e);
+            showAlert("เกิดข้อผิดพลาดในการเปิดหน้าต่างรายเดือน: " + e.message, "ข้อผิดพลาด", true);
+        }
+    }
+
+    function closeMonthlyManagementModal() {
+        if(typeof hideModal === 'function') hideModal('monthlyManagementModal');
+        else document.getElementById('monthlyManagementModal').classList.add('hidden');
+    }
+    
+    function runBatchRecalculate() {
+        if (!currentAdmin || currentAdmin.role !== 'Super Admin') {
+            showAlert("สิทธิ์ไม่ถึง: ฟังก์ชันนี้สำหรับ Super Admin เท่านั้น", "แจ้งเตือน", true);
+            return;
+        }
+        showConfirm("ยืนยันการคำนวณและปรับปรุงยอดเงินรายเดือนทั้งหมดใหม่ (Batch Recalculate)?", "ยืนยัน", () => {
+            showLoader();
+            google.script.run.withSuccessHandler((res) => {
+                hideLoader();
+                if (res.success) {
+                    showAlert("สำเร็จ: " + res.message, "สำเร็จ", false);
+                    fetchMonthlyBookings(); 
+                } else {
+                    showAlert("ข้อผิดพลาด: " + res.message, "ข้อผิดพลาด", true);
+                }
+            }).withFailureHandler((err) => {
+                hideLoader();
+                showAlert("Error: " + err, "ข้อผิดพลาด", true);
+            }).batchRecalculateMonthlyTotals();
+        });
+    }
+
+    function callToggleRenewal(id, currentStatus) {
+        const actionText = (currentStatus === "แจ้งออก") ? "ยกเลิกการแจ้งออก" : "แจ้งไม่ต่อสัญญา";
+        showConfirm(`ยืนยันการ "${actionText}" สำหรับรายการนี้?`, "ยืนยันสถานะ", () => {
+            showLoader();
+            google.script.run.withSuccessHandler((res) => {
+                hideLoader();
+                if (res.success) {
+                    fetchMonthlyBookings();
+                    if(typeof fetchData === 'function') fetchData(true); 
+                    showAlert("สำเร็จ: " + res.message, "สำเร็จ", false);
+                } else {
+                    showAlert("ข้อผิดพลาด: " + res.message, "ข้อผิดพลาด", true);
+                }
+            }).withFailureHandler((err) => {
+                hideLoader();
+                showAlert("Error: " + err, "ข้อผิดพลาด", true);
+            }).toggleRenewalStatus(id, currentStatus);
+        });
+    }
+
+    function fetchMonthlyBookings() {
+        const loader = document.getElementById('monthlyLoading');
+        const table = document.getElementById('monthlyTable');
+        const noData = document.getElementById('monthlyNoData');
+
+        if (loader) loader.classList.remove('hidden');
+        if (table) table.classList.add('hidden');
+        if (noData) noData.classList.add('hidden');
+
+        if (typeof resetPaymentInfo === 'function') {
+            try { resetPaymentInfo(); } catch (e) { console.warn(e); }
+        }
+
+        google.script.run.withSuccessHandler((res) => {
+            if (loader) loader.classList.add('hidden');
+            if (res.success) {
+                monthlyDataCache = res.data;
+                currentFilteredData = res.data;
+                populateMonthFilter(res.data);
+                currentSortColumn = null;
+                filterMonthlyData();
+            } else {
+                if (noData) noData.classList.remove('hidden');
+                console.error(res.message);
+            }
+        }).withFailureHandler((err) => {
+            if (loader) loader.classList.add('hidden');
+            if (noData) noData.classList.remove('hidden');
+            console.error(err);
+            showAlert("โหลดข้อมูลล้มเหลว: " + err, "ข้อผิดพลาด", true);
+        }).getMonthlyBookingsExternal();
+    }
+
+    function populateMonthFilter(data) {
+        const select = document.getElementById('monthlyFilterMonth');
+        if (!select) return;
+        const currentVal = select.value;
+        const uniqueMonths = [...new Set(data.map(item => item.bookingMonth))].filter(m => m && m !== '-');
+        select.innerHTML = '<option value="">ทุกเดือน</option>';
+        uniqueMonths.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m;
+            opt.innerText = m;
+            select.appendChild(opt);
+        });
+        if (!currentVal) {
+            const now = new Date();
+            const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+            const currentMonthStr = `${thaiMonths[now.getMonth()]} ${now.getFullYear() + 543}`;
+            const hasCurrent = uniqueMonths.includes(currentMonthStr);
+            if (hasCurrent) select.value = currentMonthStr; else select.value = "";
+        } else {
+            select.value = currentVal;
+        }
+    }
+
+    function filterMonthlyData() {
+        const input = document.getElementById('monthlySearchInput');
+        const select = document.getElementById('monthlyFilterMonth');
+        const keyword = input ? input.value.toLowerCase() : "";
+        const monthFilter = select ? select.value : "";
+        currentFilteredData = monthlyDataCache.filter(item => {
+            const matchKeyword =
+                (item.bookerName && item.bookerName.toLowerCase().includes(keyword)) ||
+                (item.stalls && item.stalls.toLowerCase().includes(keyword)) ||
+                (item.product && item.product.toLowerCase().includes(keyword));
+            const matchMonth = monthFilter === "" || item.bookingMonth === monthFilter;
+            return matchKeyword && matchMonth;
+        });
+        if (currentSortColumn) sortDataArray(currentSortColumn, currentSortDir);
+        currentMonthlyPage = 1;
+        renderMonthlyList();
+    }
+
+    function sortMonthlyData(column) {
+        if (currentSortColumn === column) { currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc'; } 
+        else { currentSortColumn = column; currentSortDir = 'asc'; }
+        sortDataArray(column, currentSortDir);
+        renderMonthlyList();
+        updateSortIcons(column, currentSortDir);
+    }
+
+    function sortDataArray(column, dir) {
+        currentFilteredData.sort((a, b) => {
+            let valA = a[column];
+            let valB = b[column];
+            if (column === 'totalPrice' || column === 'paid') {
+                valA = parseFloat(valA || 0);
+                valB = parseFloat(valB || 0);
+            } else if (column === 'bookingMonth') {
+                valA = new Date(a.startDate || 0).getTime();
+                valB = new Date(b.startDate || 0).getTime();
+            } else {
+                valA = (valA || "").toString().toLowerCase();
+                valB = (valB || "").toString().toLowerCase();
+            }
+            if (valA < valB) return dir === 'asc' ? -1 : 1;
+            if (valA > valB) return dir === 'asc' ? 1 : -1;
+            return 0;
+        });
+    }
+
+    function updateSortIcons(activeCol, dir) {
+        const headers = document.querySelectorAll('#monthlyTable th i');
+        headers.forEach(icon => { icon.className = 'fa-solid fa-sort text-gray-300 ml-1'; });
+        const headerMap = { 'bookingMonth': 0, 'customerType': 1, 'bookerName': 2, 'stalls': 3, 'totalPrice': 4, 'paid': 5 };
+        const idx = headerMap[activeCol];
+        if (idx !== undefined) {
+            const targetIcon = document.querySelectorAll('#monthlyTable th i')[idx];
+            if (targetIcon) targetIcon.className = `fa-solid fa-sort-${dir === 'asc' ? 'up' : 'down'} text-purple-600 ml-1`;
+        }
+    }
+
+    function changeMonthlyPage(delta) {
+        const totalPages = Math.ceil(currentFilteredData.length / monthlyItemsPerPage);
+        let newPage = currentMonthlyPage + delta;
+        if (newPage < 1) newPage = 1;
+        if (newPage > totalPages && totalPages > 0) newPage = totalPages;
+        currentMonthlyPage = newPage;
+        renderMonthlyList();
+    }
+
+    function editMonthlyBooking(id) {
+        const item = monthlyDataCache.find(x => x.id === id);
+        if (!item) return;
+        if(typeof openMonthlyEditMode === 'function') {
+            openMonthlyEditMode(item);
+        } else {
+            showAlert("ระบบยังโหลดไม่สมบูรณ์ กรุณารีเฟรชหน้าเว็บ", "แจ้งเตือน", true);
+        }
+    }
+
+    function deleteMonthlyBooking(id) {
+        showConfirm("ยืนยันการลบข้อมูลรายเดือนนี้? \nข้อมูลการจองรายวันทั้งหมดที่เกี่ยวข้องจะถูกลบไปด้วย", "ยืนยันการลบ", () => {
+            showLoader();
+            google.script.run.withSuccessHandler((res) => {
+                hideLoader();
+                if (res.success) {
+                    showAlert("สำเร็จ: " + res.message, "สำเร็จ", false);
+                    fetchMonthlyBookings();
+                    if(typeof fetchData === 'function') fetchData(true);
+                } else {
+                    showAlert("ข้อผิดพลาด: " + res.message, "ข้อผิดพลาด", true);
+                }
+            }).withFailureHandler((err) => {
+                hideLoader();
+                showAlert("Error: " + err, "ข้อผิดพลาด", true);
+            }).deleteBookingById(id);
+        });
+    }
+
+    function handlePaymentClick(id) {
+        const item = monthlyDataCache.find(x => x.id === id);
+        if(item) {
+            if (typeof openPaymentModal === 'function') {
+                openPaymentModal(item.id, item.bookerName, item.product);
+            } else {
+                showAlert("ระบบชำระเงินยังไม่พร้อมใช้งาน", "แจ้งเตือน", true);
+            }
+        }
+    }
+
+    function renderMonthlyList() {
+        const data = currentFilteredData;
+        const tbody = document.getElementById('monthlyTableBody');
+        if(!tbody) return;
+        tbody.innerHTML = '';
+        
+        const table = document.getElementById('monthlyTable');
+        const noData = document.getElementById('monthlyNoData');
+        const pagination = document.getElementById('monthlyPagination');
+
+        if(!data || data.length === 0) {
+            if(table) table.classList.add('hidden');
+            if(noData) noData.classList.remove('hidden');
+            if(pagination) pagination.classList.add('invisible');
+            return;
+        }
+
+        if(noData) noData.classList.add('hidden');
+        if(table) table.classList.remove('hidden');
+        if(pagination) pagination.classList.remove('invisible', 'hidden');
+
+        const totalPages = Math.ceil(data.length / monthlyItemsPerPage);
+        if (currentMonthlyPage > totalPages) currentMonthlyPage = totalPages;
+        if (currentMonthlyPage < 1) currentMonthlyPage = 1;
+
+        const start = (currentMonthlyPage - 1) * monthlyItemsPerPage;
+        const end = start + monthlyItemsPerPage;
+        const pageData = data.slice(start, end);
+
+        pageData.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.className = "hover:bg-purple-50 transition-colors border-b last:border-0 cursor-pointer";
+            const isRegular = (item.customerType === 'Regular');
+            
+            tr.onclick = (e) => {
+                 if(e.target.closest('button')) return;
+                 if (isRegular) {
+                     const detailBody = document.getElementById('paymentHistoryBody');
+                     const refLabel = document.getElementById('selectedBookingRef');
+                     const btnPrint = document.getElementById('btnPrintMonthlyHeader');
+                     const placeholder = document.getElementById('paymentPlaceholder');
+                     const container = document.getElementById('paymentContent');
+                     if(placeholder) placeholder.classList.add('hidden');
+                     if(container) container.classList.remove('hidden');
+                     if(btnPrint) btnPrint.classList.add('hidden');
+                     if(refLabel) refLabel.innerText = `${item.bookerName} (ลูกค้าประจำ)`;
+                     if(detailBody) detailBody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-gray-500 text-xs"><i class="fa-solid fa-info-circle mb-2 text-xl block text-blue-400"></i>ลูกค้าประจำชำระเงินแบบรายวันหน้างาน<br>ตรวจสอบประวัติได้จากหน้าผังรายวัน</td></tr>`;
+                 } else {
+                     if(typeof loadPaymentDetails === 'function') loadPaymentDetails(item.id, item.bookerName, item.product);
+                 }
+                 const rows = tbody.querySelectorAll('tr');
+                 rows.forEach(r => r.classList.remove('bg-purple-100'));
+                 tr.classList.add('bg-purple-100');
+            };
+
+            const totalPrice = parseFloat(item.totalPrice) || 0;
+            const paid = parseFloat(item.paid) || 0;
+            const remaining = totalPrice - paid;
+            const remainingColor = remaining > 0 ? "text-red-600 font-bold" : "text-green-600 font-bold";
+
+            let payButtonHtml = `
+                <button onclick="handlePaymentClick('${item.id}')" class="text-green-500 hover:text-green-700 transition-colors bg-green-50 p-1.5 rounded-full shadow-sm border border-green-100" title="ชำระเงิน">
+                     <i class="fa-solid fa-file-invoice-dollar"></i>
+                </button>
+            `;
+            
+            let totalTxt = totalPrice.toLocaleString();
+            let paidTxt = paid.toLocaleString();
+            let remainTxt = remaining > 0 ? remaining.toLocaleString() : '0';
+
+            if (isRegular) {
+                payButtonHtml = ``; 
+                totalTxt = '<span class="text-gray-400">-</span>';
+                paidTxt = '<span class="text-gray-400">-</span>';
+                remainTxt = '<span class="text-blue-500 text-[10px]">รายวัน</span>';
+            }
+            
+            let typeBadge = '<span class="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded text-[10px] font-bold">รายเดือน</span>';
+            if (item.customerType === 'Regular') typeBadge = '<span class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[10px] font-bold">ประจำ</span>';
+            if (item.customerType === 'VIP') typeBadge = '<span class="bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded text-[10px] font-bold">VIP</span>';
+
+            let renewalBtnClass = "text-gray-300 hover:text-red-500 bg-gray-50 border-gray-200"; 
+            let renewalTitle = "แจ้งไม่ต่อสัญญา";
+            if (item.renewalStatus === "แจ้งออก") {
+                renewalBtnClass = "text-red-600 bg-red-50 border-red-200";
+                renewalTitle = "ยกเลิกแจ้งออก (กลับมาต่อสัญญา)";
+            }
+            
+            // FIX: VIEW BILL Button (Eye Icon) instead of Delete
+            tr.innerHTML = `
+                <td class="px-4 py-2 font-bold text-gray-600 whitespace-nowrap text-xs">${item.bookingMonth || '-'}</td>
+                <td class="px-4 py-2 whitespace-nowrap text-center">${typeBadge}</td>
+                <td class="px-4 py-2 text-xs">
+                    <div class="font-bold text-gray-800 flex items-center gap-2">
+                        ${item.bookerName}
+                        ${item.renewalStatus === "แจ้งออก" ? '<span class="bg-red-100 text-red-600 text-[9px] px-1 rounded border border-red-200">ไม่ต่อ</span>' : ''}
+                    </div>
+                    <div class="text-[10px] text-gray-500 mt-0.5"><i class="fa-solid fa-box-open mr-1"></i>${item.product || '-'}</div>
+                </td>
+                <td class="px-4 py-2 whitespace-nowrap text-xs">
+                    <span class="bg-gray-100 text-gray-600 px-2 py-1 rounded font-bold text-[10px] inline-block max-w-[120px] truncate" title="${item.stalls}">${item.stalls}</span>
+                </td>
+                <td class="px-4 py-2 text-right text-gray-700 whitespace-nowrap text-xs">${totalTxt}</td>
+                <td class="px-4 py-2 text-right text-green-600 whitespace-nowrap text-xs">${paidTxt}</td>
+                <td class="px-4 py-2 text-right whitespace-nowrap ${isRegular ? '' : remainingColor} text-xs">${remainTxt}</td>
+                <td class="px-4 py-2 text-right whitespace-nowrap text-xs">
+                    <div class="flex items-center justify-end space-x-2">
+                        ${payButtonHtml}
+                        <button onclick="callToggleRenewal('${item.id}', '${item.renewalStatus}')" class="p-1.5 rounded-full shadow-sm border transition-colors ${renewalBtnClass}" title="${renewalTitle}">
+                            <i class="fa-solid fa-right-from-bracket"></i>
+                        </button>
+                        <button onclick="editMonthlyBooking('${item.id}')" class="text-blue-500 hover:text-blue-700 transition-colors bg-blue-50 p-1.5 rounded-full shadow-sm border border-blue-100" title="แก้ไข">
+                            <i class="fa-solid fa-pen-to-square"></i>
+                        </button>
+                        <!-- FIX: View Bill Button -->
+                        <button onclick="openBillPreview('${item.id}')" class="text-purple-500 hover:text-purple-700 transition-colors bg-purple-50 p-1.5 rounded-full shadow-sm border border-purple-100" title="ดูใบแจ้งยอด">
+                            <i class="fa-solid fa-eye"></i>
+                        </button>
+                    </div>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+</script>

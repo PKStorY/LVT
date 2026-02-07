@@ -1,0 +1,276 @@
+<script>
+    /**
+     * Scripts_Booking_Stalls_Monthly
+     * จัดการรายการล็อคสำหรับ "รายเดือน" เท่านั้น
+     * FIX: Filter out blank stall names in dropdown (Problem #2)
+     */
+
+    let activeMonthlyAddDay = null; 
+
+    function toggleAddStallDropdownMonthly(targetDay = null) {
+        const dropdown = document.getElementById('addStallDropdown');
+        if (!dropdown) return;
+
+        if (!dropdown.classList.contains('hidden') && dropdown.style.display !== 'none') {
+            if(typeof closeAddStallDropdown === 'function') {
+                closeAddStallDropdown();
+            } else {
+                dropdown.classList.add('hidden');
+                dropdown.style.display = 'none';
+            }
+            return;
+        }
+
+        activeMonthlyAddDay = targetDay;
+        
+        let inputDateVal = selectedDate; 
+        const mDateEl = document.getElementById('m_date');
+        if (mDateEl && mDateEl.value) inputDateVal = mDateEl.value;
+
+        let dayCheck = (targetDay !== null) ? targetDay : 3; 
+        let priceKey = 'priceWed';
+        if (dayCheck === 3) priceKey = 'priceWed';
+        else if (dayCheck === 6) priceKey = 'priceSat';
+        else if (dayCheck === 0) priceKey = 'priceSun';
+
+        const occupiedMap = {}; 
+
+        if(typeof monthlyDataCache !== 'undefined') {
+            const dSelect = new Date(inputDateVal);
+            const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+            const targetMonthStr = `${thaiMonths[dSelect.getMonth()]} ${dSelect.getFullYear() + 543}`;
+            const dayNameMap = { "อาทิตย์": 0, "พุธ": 3, "เสาร์": 6 };
+
+            monthlyDataCache.forEach(function(b) {
+                if (b.bookingMonth === targetMonthStr && b.renewalStatus !== "แจ้งออก") {
+                    let detailsParsed = false;
+                    if (b.stallDetails && b.stallDetails !== "" && b.stallDetails !== "undefined") {
+                        try {
+                            const details = JSON.parse(b.stallDetails);
+                            if (Array.isArray(details)) {
+                                details.forEach(d => {
+                                    const sName = d.name;
+                                    const sDays = d.days || [];
+                                    if (!occupiedMap[sName]) occupiedMap[sName] = new Set();
+                                    sDays.forEach(day => occupiedMap[sName].add(parseInt(day)));
+                                });
+                                detailsParsed = true;
+                            }
+                        } catch (e) { console.warn("Error parsing stallDetails", e); }
+                    }
+
+                    if (!detailsParsed) {
+                        let bookedDays = [];
+                        if (b.selectedDays) {
+                            bookedDays = b.selectedDays.split(',').map(s => dayNameMap[s.trim()]).filter(d => d !== undefined);
+                        } else {
+                            bookedDays = [3, 6, 0]; 
+                        }
+
+                        if (b.stalls) {
+                            const stalls = b.stalls.split(',').map(s => s.trim());
+                            stalls.forEach(sName => {
+                                if (!occupiedMap[sName]) occupiedMap[sName] = new Set();
+                                bookedDays.forEach(d => occupiedMap[sName].add(d));
+                            });
+                        }
+                    }
+                }
+            });
+        }
+
+        let requestingDays = [];
+        if (targetDay !== null) {
+            requestingDays = [targetDay];
+        } else {
+            const checkboxes = document.querySelectorAll('#monthlyOptions input[type="checkbox"]:checked');
+            requestingDays = Array.from(checkboxes).map(cb => parseInt(cb.value));
+        }
+              
+        const available = stallsData.filter(function(s) {
+            const name = String(s.name).trim();
+            // FIX: Problem #2 - Filter out empty/blank names
+            if (!name || name === "" || s.type === 'ทางเดิน' || s.type === 'อื่นๆ') return false;
+            
+            if (occupiedMap[s.name]) {
+                const occupiedDaysSet = occupiedMap[s.name];
+                const hasOverlap = requestingDays.some(reqDay => occupiedDaysSet.has(reqDay));
+                if (hasOverlap) return false; 
+            }
+
+            const isSelectedInCurrentForm = selectedStalls.find(sel => {
+                if (sel.name !== s.name) return false;
+                const selDays = sel.days || [];
+                return requestingDays.some(reqDay => selDays.includes(reqDay));
+            });
+            if (isSelectedInCurrentForm) return false;
+
+            return true;
+        });
+
+        renderDropdownListMonthly(available, priceKey);
+    }
+
+    function renderDropdownListMonthly(available, priceKey) {
+        const listContainer = document.getElementById('addStallList');
+        const searchInput = document.getElementById('stallSearchInput');
+        const dropdown = document.getElementById('addStallDropdown');
+        
+        if (listContainer) {
+            listContainer.innerHTML = '';
+            
+            if (searchInput) {
+                searchInput.value = '';
+                setTimeout(() => searchInput.focus(), 100);
+            }
+
+            if (!available || available.length === 0) {
+                listContainer.innerHTML = '<div class="p-4 text-xs text-gray-500 text-center">ไม่มีล็อคว่างสำหรับวันที่เลือก</div>';
+            } else {
+                available.forEach(function(s) {
+                    const price = s[priceKey];
+                    const item = document.createElement('div');
+                    item.className = 'stall-option px-4 py-3 hover:bg-purple-50 cursor-pointer border-b last:border-0 flex justify-between items-center transition-colors';
+                    item.dataset.search = s.name.toLowerCase();
+                    item.innerHTML = `<span class="font-bold text-gray-800">${s.name}</span><span class="text-xs text-gray-500 font-medium">${price} บ.</span>`;
+                    item.onclick = function(e) {
+                        e.stopPropagation();
+                        addStallMonthly(s, price);
+                        if(dropdown) {
+                            dropdown.classList.add('hidden');
+                            dropdown.style.display = 'none';
+                        }
+                    };
+                    listContainer.appendChild(item);
+                });
+            }
+        }
+        
+        if (dropdown) {
+            dropdown.classList.remove('hidden');
+            dropdown.style.display = 'block';
+        }
+    }
+
+    function addStallMonthly(stall, price) {
+        let targetDays = [];
+        
+        if (activeMonthlyAddDay !== null) {
+            targetDays = [activeMonthlyAddDay];
+        } else {
+            const checkboxes = document.querySelectorAll('#monthlyOptions input[type="checkbox"]:checked');
+            targetDays = Array.from(checkboxes).map(cb => parseInt(cb.value));
+        }
+
+        if (targetDays.length === 0) {
+            showAlert("กรุณาเลือกวันลงขายก่อนเพิ่มล็อค", "แจ้งเตือน", true);
+            return;
+        }
+
+        const existing = selectedStalls.find(s => s.name === stall.name);
+        
+        if (existing) {
+            targetDays.forEach(d => {
+                if (!existing.days.includes(d)) existing.days.push(d);
+            });
+        } else {
+            selectedStalls.push({
+                name: stall.name,
+                price: price,
+                days: targetDays
+            });
+        }
+        
+        renderStallTagsMonthly();
+        if(typeof calcTotalMonthly === 'function') calcTotalMonthly();
+    }
+
+    function removeStallMonthly(name, dayToRemove = null) {
+        if (dayToRemove === null) {
+            selectedStalls = selectedStalls.filter(s => s.name !== name);
+        } else {
+            const stall = selectedStalls.find(s => s.name === name);
+            if (stall) {
+                stall.days = stall.days.filter(d => d !== dayToRemove);
+                if (stall.days.length === 0) {
+                    selectedStalls = selectedStalls.filter(s => s.name !== name);
+                }
+            }
+        }
+        renderStallTagsMonthly();
+        if(typeof calcTotalMonthly === 'function') calcTotalMonthly();
+    }
+
+    function renderStallTagsMonthly() {
+        const monthlyContainer = document.getElementById('selectedStallsContainer_Monthly');
+        const checkboxes = document.querySelectorAll('#monthlyOptions input[type="checkbox"]:checked');
+        const activeDays = Array.from(checkboxes).map(cb => parseInt(cb.value));
+
+        if (monthlyContainer) {
+            monthlyContainer.innerHTML = '';
+            
+            const dayGroups = [
+                { id: 3, label: 'พุธ', color: 'green' },
+                { id: 6, label: 'เสาร์', color: 'purple' },
+                { id: 0, label: 'อาทิตย์', color: 'red' }
+            ];
+
+            dayGroups.forEach(group => {
+                const dayVal = group.id;
+                const color = group.color;
+                const hasStallsForDay = selectedStalls.some(s => s.days && s.days.includes(dayVal));
+                
+                if (activeDays.includes(dayVal) || hasStallsForDay) {
+                    const box = document.createElement('div');
+                    box.className = `flex items-center bg-${color}-50 border border-${color}-100 p-2 rounded mb-1`;
+                    
+                    let html = `<div class="w-8 text-[10px] font-bold text-${color}-700 uppercase mr-2">${group.label}</div>`;
+                    html += `<div class="flex-1 flex flex-wrap gap-1">`;
+                    
+                    let hasStalls = false;
+                    selectedStalls.forEach(s => {
+                        if (s.days && s.days.includes(dayVal)) {
+                            hasStalls = true;
+                            // Check disabled state from container class (set by loadMonthlyEditForm)
+                            // OR check if global edit mode is active? 
+                            // Actually, removing stall should always be allowed in Edit mode.
+                            // The problem #3 requested "Disable list selection", which usually means adding new ones.
+                            // But usually users want to remove existing ones.
+                            // If "Disable list selection" implies READ ONLY for stalls, then hide 'x'.
+                            // Assuming "Disable list selection" means CANNOT CHANGE (Add/Remove).
+                            
+                            const isDisabled = monthlyContainer.classList.contains('pointer-events-none');
+                            const removeBtn = isDisabled ? '' : `<button type="button" onclick="removeStallMonthly('${s.name}', ${dayVal})" class="ml-1 text-red-400 hover:text-red-600 font-bold">×</button>`;
+                            
+                            html += `
+                                <div class="bg-white border border-${color}-300 text-${color}-700 px-2 py-0.5 rounded text-[10px] shadow-sm flex items-center">
+                                    <span class="font-bold mr-1">${s.name}</span>
+                                    ${removeBtn}
+                                </div>
+                            `;
+                        }
+                    });
+
+                    if (!hasStalls) {
+                        html += `<span class="text-[10px] text-gray-400 italic">เลือก...</span>`;
+                    }
+                    html += `</div>`; 
+
+                    // Check disabled state for Add Button
+                    const isDisabled = monthlyContainer.classList.contains('pointer-events-none');
+                    if (!isDisabled) {
+                        html += `
+                            <button type="button" onclick="toggleAddStallDropdownMonthly(${dayVal})" class="btn-add-stall-dynamic w-6 h-6 flex items-center justify-center bg-white border border-${color}-300 text-${color}-600 rounded-full hover:bg-${color}-100 transition shadow-sm text-xs font-bold shrink-0 ml-2">
+                                <i class="fa-solid fa-plus pointer-events-none"></i>
+                            </button>
+                        `;
+                    }
+
+                    box.innerHTML = html;
+                    monthlyContainer.appendChild(box);
+                }
+            });
+            if(typeof calcTotalMonthly === 'function') calcTotalMonthly();
+        }
+    }
+</script>

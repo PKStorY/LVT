@@ -1,0 +1,166 @@
+<script>
+    /**
+     * Scripts_Booking_Stalls_Daily
+     * จัดการรายการล็อคสำหรับ "รายวัน" เท่านั้น
+     * FIX: ปรับปรุงปุ่ม + และ Dropdown ให้เลือกได้ง่ายและปิดทันที
+     */
+
+    function toggleAddStallDropdownDaily() {
+        const dropdown = document.getElementById('addStallDropdown');
+        if (!dropdown) return;
+
+        // Toggle: ถ้าเปิดอยู่ให้ปิด
+        if (!dropdown.classList.contains('hidden')) {
+            dropdown.classList.add('hidden');
+            return;
+        }
+
+        // Logic for Daily: Filter available stalls
+        let available = [];
+        const bookingMap = {};
+        
+        if (typeof bookingsData !== 'undefined' && Array.isArray(bookingsData)) {
+            bookingsData.forEach(function(b) { 
+                if(b && b.stallName) bookingMap[b.stallName] = b; 
+            });
+        }
+
+        if (typeof stallsData !== 'undefined' && Array.isArray(stallsData)) {
+            available = stallsData.filter(function(s) {
+                // Filter: Type, Occupied, Already Selected
+                if (s.type === 'ทางเดิน' || s.type === 'อื่นๆ') return false;
+                if (bookingMap[s.name]) return false;
+                if (selectedStalls.find(function(sel) { return sel.name === s.name; })) return false;
+                return true;
+            });
+        }
+
+        // Price Key
+        let priceKey = 'priceWed';
+        if (typeof selectedDate !== 'undefined') {
+            const [y, m, d] = selectedDate.split('-').map(Number);
+            const dateObj = new Date(y, m - 1, d);
+            const dayCheck = dateObj.getDay();
+            if (dayCheck === 3) priceKey = 'priceWed';
+            else if (dayCheck === 6) priceKey = 'priceSat';
+            else if (dayCheck === 0) priceKey = 'priceSun';
+        }
+
+        renderDropdownListDaily(available, priceKey);
+    }
+
+    function renderDropdownListDaily(available, priceKey) {
+        const listContainer = document.getElementById('addStallList');
+        const searchInput = document.getElementById('stallSearchInput');
+        const dropdown = document.getElementById('addStallDropdown');
+        
+        if (listContainer) {
+            listContainer.innerHTML = '';
+            
+            // Reset & Focus Search
+            if (searchInput) {
+                searchInput.value = '';
+                setTimeout(() => searchInput.focus(), 100);
+            }
+
+            if (!available || available.length === 0) {
+                listContainer.innerHTML = '<div class="p-4 text-xs text-gray-500 text-center">ไม่มีล็อคว่างให้เลือก</div>';
+            } else {
+                available.forEach(function(s) {
+                    const price = s[priceKey];
+                    const item = document.createElement('div');
+                    // ปรับ CSS ให้กดง่ายขึ้น (cursor-pointer)
+                    item.className = 'stall-option px-4 py-3 hover:bg-blue-50 cursor-pointer text-sm border-b last:border-0 flex justify-between items-center transition-colors';
+                    item.dataset.search = s.name.toLowerCase();
+                    
+                    item.innerHTML = `
+                        <span class="font-bold text-gray-700 pointer-events-none">${s.name}</span> 
+                        <span class="text-blue-600 font-bold pointer-events-none">${price}.-</span>
+                    `;
+                    
+                    // Event Listener แบบชัดเจน
+                    item.addEventListener('click', function(e) {
+                        e.stopPropagation(); // ห้าม event ทะลุไปปิด dropdown ซ้ำซ้อน
+                        addStallDaily(s.name, price);
+                    });
+                    
+                    listContainer.appendChild(item);
+                });
+            }
+        }
+
+        // Show Dropdown & Fix Position
+        if (dropdown) {
+            dropdown.classList.remove('hidden');
+            dropdown.style.position = 'fixed';
+            dropdown.style.top = '50%';
+            dropdown.style.left = '50%';
+            dropdown.style.transform = 'translate(-50%, -50%)';
+            dropdown.style.zIndex = '9999'; // อยู่บนสุดเสมอ
+            dropdown.style.maxHeight = '80vh';
+            dropdown.style.display = 'flex'; 
+            dropdown.style.flexDirection = 'column';
+        }
+    }
+
+    function addStallDaily(name, price) {
+        const dropdown = document.getElementById('addStallDropdown');
+        
+        // Prevent Duplicates
+        if (selectedStalls.find(function(s) { return s.name === name; })) {
+             if (dropdown) dropdown.classList.add('hidden');
+             return;
+        }
+        
+        selectedStalls.push({ name: name, price: price });
+        
+        // Update UI
+        renderStallTagsDaily();
+        
+        // Force Close Dropdown
+        if (dropdown) {
+            dropdown.classList.add('hidden');
+            dropdown.style.display = 'none'; // Double assurance
+        }
+    }
+
+    function removeStallDaily(name) {
+        selectedStalls = selectedStalls.filter(function(s) { return s.name !== name; });
+        renderStallTagsDaily();
+    }
+
+    function renderStallTagsDaily() {
+        const dailyContainer = document.getElementById('selectedStallsContainer_Daily');
+        
+        // ตรวจสอบสถานะ ReadOnly เพื่อซ่อนปุ่มลบ (กรณีชำระแล้ว)
+        const isPaidMode = document.getElementById('d_btn_print') && !document.getElementById('d_btn_print').classList.contains('hidden');
+        const isDeleteHidden = isPaidMode ? 'hidden' : '';
+
+        if (dailyContainer) {
+            dailyContainer.innerHTML = '';
+            selectedStalls.forEach(function(s) {
+                const tag = document.createElement('div');
+                tag.className = 'flex items-center bg-white border border-blue-300 text-blue-700 px-2 py-1 rounded text-xs shadow-sm whitespace-nowrap gap-1';
+                
+                let html = `<span class="font-bold">${s.name}</span><span class="text-gray-500 text-[10px]">(${s.price})</span>`;
+                
+                // ปุ่มลบ: จะถูกซ่อนถ้าอยู่ในโหมดชำระแล้ว
+                html += `<button type="button" class="text-red-400 hover:text-red-600 font-bold px-1 rounded hover:bg-red-50 transition-colors btn-remove-stall ${isDeleteHidden}" data-name="${s.name}">×</button>`;
+                
+                tag.innerHTML = html;
+                
+                // Bind Click Event for Remove
+                const removeBtn = tag.querySelector('.btn-remove-stall');
+                if (removeBtn) {
+                    removeBtn.onclick = function() {
+                        removeStallDaily(s.name);
+                    };
+                }
+
+                dailyContainer.appendChild(tag);
+            });
+            
+            if(typeof calcTotalDaily === 'function') calcTotalDaily();
+        }
+    }
+</script>

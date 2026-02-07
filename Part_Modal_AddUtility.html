@@ -1,0 +1,46 @@
+<!-- Add Utility Modal (เพิ่มค่าไฟ/น้ำ) -->
+<div id="utilityModal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-[80]">
+    <div class="bg-white w-80 rounded-xl shadow-2xl overflow-hidden animate-bounce-in">
+        <div class="bg-yellow-500 px-4 py-3 flex justify-between items-center">
+            <h3 class="font-bold text-white flex items-center gap-2">
+                <i class="fa-solid fa-bolt"></i> เพิ่มค่าไฟ
+            </h3>
+            <button onclick="document.getElementById('utilityModal').classList.add('hidden')" class="text-white hover:text-yellow-200">
+                <i class="fa-solid fa-times"></i>
+            </button>
+        </div>
+        
+        <div class="p-5">
+            <form id="utilityForm" onsubmit="submitUtility(event)" class="space-y-4">
+                <input type="hidden" id="util_bookingId">
+                
+                <div>
+                    <label class="block text-xs font-bold text-gray-600 mb-1">จำนวนหน่วยที่เพิ่ม</label>
+                    <input type="number" id="util_unit" min="1" class="w-full border border-gray-300 rounded px-3 py-2 text-center text-lg font-bold text-yellow-600 focus:ring-2 focus:ring-yellow-400 outline-none" required oninput="calcUtilPrice()">
+                </div>
+                
+                <div class="flex justify-between items-center bg-gray-50 p-2 rounded border border-gray-200">
+                    <span class="text-sm font-bold text-gray-600">เป็นเงิน</span>
+                    <span id="util_price_display" class="text-lg font-bold text-green-600">0</span>
+                    <span class="text-xs text-gray-500">บาท</span>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-600 mb-1">ช่องทางชำระ</label>
+                    <div class="flex gap-2">
+                        <label class="flex-1 cursor-pointer">
+                            <input type="radio" name="util_method" value="Cash" checked class="peer hidden">
+                            <div class="peer-checked:bg-green-600 peer-checked:text-white bg-white border border-gray-300 text-gray-600 px-2 py-1.5 rounded text-center text-xs font-bold transition">เงินสด</div>
+                        </label>
+                        <label class="flex-1 cursor-pointer">
+                            <input type="radio" name="util_method" value="Transfer" class="peer hidden">
+                            <div class="peer-checked:bg-blue-600 peer-checked:text-white bg-white border border-gray-300 text-gray-600 px-2 py-1.5 rounded text-center text-xs font-bold transition">โอน</div>
+                        </label>
+                    </div>
+                </div>
+
+                <button type="submit" class="w-full bg-yellow-600 text-white font-bold py-2 rounded-lg hover:bg-yellow-700 shadow transition">บันทึก</button>
+            </form>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,198 @@
+<script>
+    /**
+     * Scripts_StorageMove
+     * ควบคุมการทำงานของ Modal ย้ายของ (Storage Move)
+     * Update: Replaced alert() with showAlert()
+     */
+    
+    function openStorageMoveModal(id, currentLoc) {
+        document.getElementById('mv_storage_id').value = id;
+        document.getElementById('mv_current_location').value = currentLoc;
+        document.getElementById('mv_display_current').innerText = currentLoc;
+        
+        clearMoveSelection();
+        
+        const btnHolding = document.getElementById('opt_move_holding');
+        if (currentLoc === 'Holding Area') {
+            btnHolding.classList.add('hidden');
+        } else {
+            btnHolding.classList.remove('hidden');
+        }
+        
+        document.getElementById('storageMoveModal').classList.remove('hidden');
+    }
+
+    function closeStorageMoveModal() {
+        document.getElementById('storageMoveModal').classList.add('hidden');
+        document.getElementById('st_mv_dropdownList').classList.add('hidden');
+    }
+
+    function selectMoveOption(target) {
+        if(target === 'Holding Area') {
+            submitMoveToLocation('Holding Area');
+        }
+    }
+
+    function clearMoveSelection() {
+        const searchInput = document.getElementById('st_mv_stallSearch');
+        const targetInput = document.getElementById('st_mv_target_stall');
+        const clearBtn = document.getElementById('st_mv_clear_btn');
+        const list = document.getElementById('st_mv_dropdownList');
+        
+        if (searchInput) searchInput.value = "";
+        if (targetInput) targetInput.value = "";
+        if (clearBtn) clearBtn.classList.add('hidden');
+        if (list) list.classList.add('hidden');
+        
+        validateMoveInput();
+    }
+
+    // --- LOCAL DROPDOWN LOGIC ---
+
+    function showStorageMoveDropdown() {
+        const list = document.getElementById('st_mv_dropdownList');
+        if (!list) return;
+        
+        list.innerHTML = '';
+        
+        let occupiedStorageStalls = new Set();
+        if (typeof globalStorageMap !== 'undefined' && globalStorageMap) {
+            Object.keys(globalStorageMap).forEach(key => {
+                if(key) occupiedStorageStalls.add(String(key).trim());
+            });
+        }
+        
+        const currentLocVal = document.getElementById('mv_current_location').value;
+        const currentLoc = String(currentLocVal).trim();
+
+        let hasData = false;
+        
+        if (typeof stallsData !== 'undefined' && Array.isArray(stallsData)) {
+            stallsData.forEach(s => {
+                const sName = String(s.name).trim();
+                if (!sName || s.type === 'ทางเดิน' || s.type === 'อื่นๆ') return;
+                if (occupiedStorageStalls.has(sName)) return;
+                if (sName === currentLoc) return;
+
+                hasData = true;
+                const div = document.createElement('div');
+                div.className = 'mv-local-option px-4 py-3 hover:bg-blue-50 cursor-pointer text-sm border-b last:border-0 flex justify-between items-center transition-colors';
+                div.dataset.search = sName.toLowerCase();
+                div.innerHTML = `
+                    <span class="font-bold text-gray-700 pointer-events-none">${sName}</span>
+                    <span class="text-xs text-green-600 font-bold pointer-events-none bg-green-50 px-2 py-0.5 rounded border border-green-100">ว่าง</span>
+                `;
+                div.onmousedown = (e) => {
+                    e.preventDefault(); 
+                    selectStorageMoveStall(sName);
+                };
+                list.appendChild(div);
+            });
+        }
+
+        if (!hasData) {
+            list.innerHTML = '<div class="p-4 text-xs text-gray-500 text-center">ไม่มีล็อคว่างสำหรับย้ายของ</div>';
+        }
+
+        list.classList.remove('hidden');
+    }
+
+    function filterStorageMoveStalls() {
+        const input = document.getElementById('st_mv_stallSearch');
+        const filter = input.value.toLowerCase();
+        const list = document.getElementById('st_mv_dropdownList');
+        
+        if (list.classList.contains('hidden')) {
+             showStorageMoveDropdown();
+        }
+        
+        const options = list.querySelectorAll('.mv-local-option');
+        let found = false;
+        options.forEach(div => {
+            if (div.dataset.search.includes(filter)) {
+                div.classList.remove('hidden');
+                found = true;
+            } else {
+                div.classList.add('hidden');
+            }
+        });
+        
+        document.getElementById('st_mv_target_stall').value = "";
+        document.getElementById('st_mv_clear_btn').classList.remove('hidden');
+        validateMoveInput();
+    }
+
+    function selectStorageMoveStall(name) {
+        const searchInput = document.getElementById('st_mv_stallSearch');
+        const targetInput = document.getElementById('st_mv_target_stall');
+        const list = document.getElementById('st_mv_dropdownList');
+        const clearBtn = document.getElementById('st_mv_clear_btn');
+
+        if (searchInput) searchInput.value = name;
+        if (targetInput) targetInput.value = name;
+        if (list) list.classList.add('hidden');
+        if (clearBtn) clearBtn.classList.remove('hidden');
+        
+        validateMoveInput();
+    }
+    
+    document.addEventListener('click', function(e) {
+        const wrapper = document.getElementById('storageMoveModal');
+        const input = document.getElementById('st_mv_stallSearch');
+        const list = document.getElementById('st_mv_dropdownList');
+        
+        if (wrapper && !wrapper.classList.contains('hidden')) {
+             if (e.target !== input && list && !list.contains(e.target)) {
+                 list.classList.add('hidden');
+             }
+        }
+    });
+
+    function validateMoveInput() {
+        const val = document.getElementById('st_mv_target_stall').value.trim();
+        const btn = document.getElementById('st_btn_confirm_move');
+        if(val.length > 0) {
+            btn.disabled = false;
+            btn.classList.remove('opacity-50', 'cursor-not-allowed');
+        } else {
+            btn.disabled = true;
+            btn.classList.add('opacity-50', 'cursor-not-allowed');
+        }
+    }
+
+    function submitMoveStorage() {
+        const target = document.getElementById('st_mv_target_stall').value.trim();
+        if(target) submitMoveToLocation(target.toUpperCase());
+    }
+
+    function submitMoveToLocation(newLocation) {
+        const id = document.getElementById('mv_storage_id').value;
+        const currentLoc = document.getElementById('mv_current_location').value;
+        
+        if (newLocation === currentLoc) {
+            // FIX: Use Custom Alert
+            showAlert("ปลายทางต้องไม่ซ้ำกับตำแหน่งปัจจุบัน", "แจ้งเตือน", true);
+            return;
+        }
+
+        showLoader();
+        google.script.run
+            .withSuccessHandler((res) => {
+                hideLoader();
+                if(res.success) {
+                    closeStorageMoveModal();
+                    // FIX: Use Custom Alert
+                    showAlert(`ย้ายไปยัง ${newLocation} เรียบร้อย`, "สำเร็จ", false);
+                    if(typeof fetchStorageList === 'function') fetchStorageList(); 
+                    if(typeof fetchData === 'function') fetchData(true); 
+                } else {
+                    showAlert(res.message, "ข้อผิดพลาด", true);
+                }
+            })
+            .withFailureHandler(err => {
+                hideLoader();
+                showAlert("Error: " + err, "ข้อผิดพลาด", true);
+            })
+            .moveStorageLocation(id, newLocation);
+    }
+</script>

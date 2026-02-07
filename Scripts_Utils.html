@@ -1,0 +1,53 @@
+<script>
+    // --- GLOBAL VARIABLES ---
+    let currentAdmin = null; 
+    let stallsData = [];
+    let bookingsData = [];
+    let monthlyDataCache = []; 
+    let currentFilteredData = []; 
+    let currentMonthlyPage = 1;    
+    
+    // FIX: ปรับจำนวนแถวต่อหน้าจาก 5 เป็น 7 เพื่อความสวยงามพอดีกับพื้นที่ Modal
+    const monthlyItemsPerPage = 7; 
+    
+    let selectedDate = new Date().toISOString().split('T')[0];
+    let dateOffsetCounter = 0; 
+    let selectedStalls = []; 
+    let modalCloseTimer = null; 
+    
+    // Constants
+    const SESSION_KEY = 'market_admin_session';
+    const SESSION_TIMEOUT = 2 * 60 * 60 * 1000; // 2 Hours
+
+    // --- Utility Functions ---
+
+    // Format Thai Date Short (Header)
+    function formatThaiDateShort(dateStr) {
+        if(!dateStr) return "-";
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const date = new Date(y, m - 1, d);
+        const dayNames = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+        const monthNames = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+        const thaiYear = (date.getFullYear() + 543).toString().slice(-2);
+        return `${dayNames[date.getDay()]} ${date.getDate()} ${monthNames[date.getMonth()]} ${thaiYear}`;
+    }
+
+    // Format Thai Date Full (Ticket)
+    function formatThaiDateFull(dateStr) {
+        if(!dateStr) return "-";
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const date = new Date(y, m - 1, d);
+        const months = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+        const days = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"];
+        return `${days[date.getDay()]} ${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear() + 543}`;
+    }
+    
+    // Format Transaction Date/Time (Ticket)
+    function formatTxnDate(date) {
+        const d = date.getDate();
+        const m = date.getMonth() + 1;
+        const y = date.getFullYear() + 543;
+        const time = `${date.getHours()}:${String(date.getMinutes()).padStart(2,'0')}:${String(date.getSeconds()).padStart(2,'0')}`;
+        return `${d}/${m}/${y} ${time}`;
+    }
+</script>

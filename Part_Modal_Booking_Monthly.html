@@ -1,0 +1,155 @@
+<!-- Monthly Booking Modal (Form Only) -->
+<div id="bookingModalMonthly" style="display:none;" class="modal opacity-0 pointer-events-none fixed w-full h-full top-0 left-0 flex items-center justify-center z-50">
+    <div class="modal-overlay absolute w-full h-full bg-gray-900 opacity-50" onclick="closeModalMonthly()"></div>
+    <div class="modal-container bg-white w-11/12 md:max-w-md mx-auto rounded-xl shadow-lg z-50 overflow-y-auto max-h-[95vh]">
+        
+        <!-- Header -->
+        <div class="modal-header bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-3 rounded-t-xl relative flex flex-col shadow-sm">
+            <div class="cursor-pointer absolute right-2 top-2 z-50 text-white opacity-70 hover:opacity-100 transition" onclick="closeModalMonthly()">
+                <i class="fa-solid fa-circle-xmark text-xl"></i>
+            </div>
+            
+            <div class="flex justify-between items-center pt-1 pr-6"> 
+                <div class="flex items-center gap-2 text-white w-full">
+                    <i class="fa-solid fa-calendar-days text-lg"></i>
+                    <h3 class="font-bold text-sm mt-0.5" id="m_header_title">จัดการข้อมูลรายเดือน</h3>
+                    <div class="flex items-center gap-1 text-pink-200 text-[11px] ml-auto mr-2 bg-white bg-opacity-20 px-2 py-0.5 rounded-full">
+                        <i class="fa-solid fa-user-tie"></i>
+                        <span>: <span class="font-bold text-white" id="m_admin_badge"></span></span>
+                    </div>
+                </div>
+            </div>
+            <div class="flex justify-between items-center mt-1">
+                <div class="text-white text-xs font-medium opacity-90" id="m_header_date_right"></div>
+            </div>
+        </div>
+
+        <div class="modal-content py-4 text-left px-6 bg-white">
+            
+            <form id="bookingFormMonthly" onsubmit="submitBookingMonthlyEvent(event)" class="space-y-3">
+                <input type="hidden" id="m_bookingId">
+                <input type="hidden" id="m_rentType" value="รายเดือน">
+                <input type="hidden" id="m_stallPriceDisplay">
+
+                <!-- 1. Config Section -->
+                <div class="bg-purple-50 p-3 rounded-lg border border-purple-100">
+                   <!-- Date & Options -->
+                   <div class="flex items-start justify-between gap-2 mb-2">
+                        <div class="w-1/2">
+                            <div class="flex flex-wrap items-baseline gap-1 mb-1">
+                                <label class="block text-purple-800 text-[10px] font-bold">วันที่เริ่ม</label>
+                                <span id="m_date_display_th" class="text-[10px] text-purple-600 font-bold bg-white px-1 rounded shadow-sm"></span>
+                            </div>
+                            <div class="relative">
+                                <input type="date" id="m_date" class="w-full px-2 py-1.5 text-sm border border-purple-200 rounded focus:outline-none focus:ring-1 focus:ring-purple-400 bg-white" onchange="calcTotalMonthly(); updateHeaderDateDisplayMonthly();">
+                            </div>
+                        </div>
+                        <div class="w-1/2 flex flex-col items-end" id="monthlyOptions">
+                            <div class="flex flex-col items-start w-full"> 
+                                <label class="block text-purple-800 text-[10px] font-bold mb-1 ml-0.5">วันลงขาย</label>
+                                <div class="flex justify-start gap-1 w-full">
+                                    <label class="flex-1 inline-flex justify-center items-center cursor-pointer bg-white px-1 py-1 rounded border border-purple-100 shadow-sm hover:bg-purple-100 transition"><input type="checkbox" id="chk_day_3" class="form-checkbox h-3 w-3 text-green-600 rounded" value="3" onchange="renderStallTagsMonthly(); calcTotalMonthly();" checked><span class="ml-1 text-[10px] text-gray-700">พ</span></label>
+                                    <label class="flex-1 inline-flex justify-center items-center cursor-pointer bg-white px-1 py-1 rounded border border-purple-100 shadow-sm hover:bg-purple-100 transition"><input type="checkbox" id="chk_day_6" class="form-checkbox h-3 w-3 text-purple-600 rounded" value="6" onchange="renderStallTagsMonthly(); calcTotalMonthly();" checked><span class="ml-1 text-[10px] text-gray-700">ส</span></label>
+                                    <label class="flex-1 inline-flex justify-center items-center cursor-pointer bg-white px-1 py-1 rounded border border-purple-100 shadow-sm hover:bg-purple-100 transition"><input type="checkbox" id="chk_day_0" class="form-checkbox h-3 w-3 text-red-600 rounded" value="0" onchange="renderStallTagsMonthly(); calcTotalMonthly();" checked><span class="ml-1 text-[10px] text-gray-700">อา</span></label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-between items-center pt-2 border-t border-purple-200 mt-2">
+                        <div class="flex items-center">
+                            <label class="inline-flex items-center cursor-pointer group" title="รีเซ็ตผัง">
+                                <input type="checkbox" id="m_forceReset" class="form-checkbox h-3 w-3 text-red-600 rounded border-red-300 focus:ring-red-500 transition">
+                                <span class="ml-1.5 text-[10px] font-bold text-red-600 group-hover:text-red-700 transition">รีเซ็ตในผัง</span>
+                            </label>
+                        </div>
+                        <div class="flex gap-2 items-center bg-white px-2 py-0.5 rounded border border-purple-100">
+                             <!-- FIX: Change Label "Normal" to "Monthly" -->
+                             <label class="inline-flex items-center cursor-pointer"><input type="radio" name="m_customerType" value="Standard" class="form-radio text-purple-600 h-3 w-3" checked onchange="handleCustomerTypeChangeMonthly()"><span class="ml-1 text-[10px] text-gray-700">รายเดือน</span></label>
+                             <label class="inline-flex items-center cursor-pointer"><input type="radio" name="m_customerType" value="Regular" class="form-radio text-blue-600 h-3 w-3" onchange="handleCustomerTypeChangeMonthly()"><span class="ml-1 text-[10px] text-gray-700">ประจำ</span></label>
+                             <label class="inline-flex items-center cursor-pointer"><input type="radio" name="m_customerType" value="VIP" class="form-radio text-yellow-500 h-3 w-3" onchange="handleCustomerTypeChangeMonthly()"><span class="ml-1 text-[10px] text-gray-700">VIP</span></label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. Stalls List -->
+                <div class="bg-blue-50 p-2 rounded-lg border border-blue-100 mb-2">
+                    <div class="flex justify-start items-center mb-1 gap-2">
+                        <label class="text-gray-700 text-xs font-bold whitespace-nowrap">รายการล็อค :</label>
+                        <button type="button" id="m_btnAddStallMain" onclick="toggleAddStallDropdownMonthly(null)" class="text-blue-600 hover:text-blue-800 text-[10px] font-bold bg-white px-2 py-0.5 rounded border border-blue-200 hover:border-blue-400 transition shadow-sm flex items-center gap-1">
+                            <i class="fa-solid fa-plus"></i> เพิ่ม
+                        </button>
+                    </div>
+                    <div id="selectedStallsContainer_Monthly" class="flex flex-col gap-1"></div>
+                </div>
+
+                <!-- 3. Fees Section -->
+                <div class="grid grid-cols-2 gap-3 mb-2" id="monthlyFeesSection">
+                    <div class="bg-orange-50 p-2 rounded border border-orange-100 flex flex-col">
+                        <label class="text-[10px] text-orange-700 font-bold mb-1 flex items-center gap-1">
+                            <i class="fa-solid fa-box-open"></i> ค่าฝากของ
+                        </label>
+                        <div class="relative">
+                            <input type="number" id="m_storageFee" value="0" min="0" class="w-full pl-2 pr-6 py-1 border border-orange-200 rounded text-right text-sm font-bold text-gray-700 focus:ring-1 focus:ring-orange-300" oninput="calcTotalMonthly()">
+                            <span class="absolute right-2 top-1.5 text-[10px] text-gray-400">บ.</span>
+                        </div>
+                    </div>
+                    <div class="bg-yellow-50 p-2 rounded border border-yellow-100 flex flex-col">
+                        <label class="text-[10px] text-yellow-700 font-bold mb-1 flex items-center gap-1">
+                            <i class="fa-solid fa-bolt"></i> ค่าไฟ (เหมา)
+                        </label>
+                        <div class="relative">
+                            <input type="number" id="m_elecUnit" value="0" min="0" class="w-full pl-2 pr-8 py-1 border border-yellow-200 rounded text-right text-sm font-bold text-gray-700 focus:ring-1 focus:ring-yellow-300" oninput="calcTotalMonthly()">
+                            <span class="absolute right-2 top-1.5 text-[10px] text-gray-400">หน่วย</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. Summary Section (Toggle for VIP) -->
+                <!-- FIX: Added ID to toggle visibility -->
+                <div id="monthlySummarySection" class="bg-white rounded-lg border border-gray-200 p-3 mb-3 shadow-sm">
+                    <p class="text-[10px] font-bold text-gray-500 uppercase mb-2 border-b border-gray-200 pb-1">สรุปรายละเอียดราคา</p>
+                    <div id="monthlyPriceSummary" class="space-y-1.5 text-xs"></div>
+                </div>
+
+                <!-- Grand Total Section (Adaptive) -->
+                <div class="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-bold text-gray-800">ยอดรวมที่ต้องชำระทั้งสิ้น</span>
+                        <div class="text-right">
+                            <!-- Standard View -->
+                            <div id="m_totalPriceDisplay">
+                                <span id="m_totalPrice" class="text-xl font-extrabold text-purple-700 leading-none">0.00</span>
+                                <span class="text-[10px] text-gray-400">บาท</span>
+                            </div>
+                            <!-- VIP View (Input) -->
+                            <div id="m_manualTotalInputContainer" class="hidden">
+                                <input type="number" id="m_manualTotalInput" class="w-32 px-2 py-1 text-right text-lg font-bold border border-purple-300 rounded focus:ring-2 focus:ring-purple-500" placeholder="0.00">
+                                <span class="text-[10px] text-gray-400 ml-1">บาท</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5. Customer Info -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div><label class="block text-gray-700 text-sm font-bold mb-1">ชื่อผู้จอง</label><input type="text" id="m_bookerName" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white transition text-base" placeholder="ระบุชื่อ-สกุล" required></div>
+                    <div><label class="block text-gray-700 text-sm font-bold mb-1">สินค้า</label><input type="text" id="m_product" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white transition text-base" placeholder="ระบุสินค้า" required></div>
+                </div>
+                <div class="mb-3"><label class="block text-gray-700 text-sm font-bold mb-1">เบอร์โทรศัพท์</label><input type="tel" id="m_phone" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white transition" placeholder="08x-xxxxxxx"></div>
+
+                <!-- 6. Payment Section (Removed as requested previously) -->
+                <!-- <div id="m_paymentSection" ...></div> -->
+
+                <div class="mb-2 mt-2"><label class="text-xs text-gray-500">โน้ตเพิ่มเติม</label><textarea id="m_note" class="w-full p-2 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-purple-400" rows="1"></textarea></div>
+                
+                <!-- Buttons -->
+                <div class="flex justify-end space-x-2 pt-2 border-t mt-4 items-center">
+                    <button type="button" id="m_btn_delete" onclick="deleteCurrentBookingMonthlyFull()" class="hidden px-3 py-2 bg-gray-100 text-gray-500 rounded hover:bg-red-100 hover:text-red-600 text-xs font-bold transition border border-gray-200"><i class="fa-solid fa-trash mr-1"></i>ลบสัญญา</button>
+                    <div class="flex-1"></div> 
+                    <button type="submit" class="px-6 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-700 hover:to-pink-700 shadow-md hover:shadow-lg text-sm font-bold transition-all transform active:scale-95"><i class="fa-regular fa-save mr-1"></i> บันทึกข้อมูล</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

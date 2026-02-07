@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ลงทะเบียนสมาชิกตลาดนัด</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Mali:wght@400;600;700&family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+
+    <style>
+        body {
+            font-family: 'Sarabun', sans-serif;
+            background-color: #FDF5E6;
+            color: #4A3B32;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0;
+            overflow: hidden;
+        }
+        .vintage-card {
+            background-color: #FFF8DC;
+            border: 2px solid #8B4513;
+            border-radius: 15px;
+            box-shadow: 5px 5px 0px rgba(139, 69, 19, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+        .paper-texture {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image: url('https://www.transparenttextures.com/patterns/paper.png');
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        .font-hand { font-family: 'Mali', cursive; }
+        
+        .input-vintage {
+            background-color: #FFF;
+            border: 2px solid #D2B48C;
+            border-radius: 8px;
+            padding: 10px 15px;
+            width: 100%;
+            outline: none;
+            transition: all 0.3s;
+            color: #5D4037;
+            font-weight: 600;
+        }
+        
+        .btn-vintage {
+            background-color: #8B4513;
+            color: #FFF;
+            border: none;
+            border-radius: 8px;
+            padding: 12px;
+            width: 100%;
+            font-family: 'Mali', cursive;
+            font-weight: bold;
+            font-size: 1.1rem;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+
+        .profile-img-container {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            border: 4px solid #8B4513;
+            overflow: hidden;
+            margin: 0 auto 15px;
+            background-color: #E0C097;
+            position: relative;
+            z-index: 10;
+        }
+
+        #loginSection {
+            text-align: center;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body class="p-4">
+
+    <!-- 1. LOGIN SCREEN (First View) -->
+    <div id="loginSection" class="vintage-card w-full max-w-sm p-8">
+        <div class="mb-4">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/4/41/LINE_logo.svg" class="w-20 h-20 mx-auto drop-shadow-md">
+        </div>
+        <h2 class="text-xl font-bold text-[#5D4037] mb-2 font-hand">ลงทะเบียนสมาชิก</h2>
+        <p class="text-sm text-[#8D6E63] mb-6">กดปุ่มด้านล่างเพื่อยืนยันตัวตนด้วย LINE</p>
+        
+        <button onclick="startLineLogin()" class="w-full bg-[#06C755] text-white py-3 rounded-lg font-bold shadow hover:bg-[#05b34c] transition flex items-center justify-center gap-2">
+            <i class="fa-brands fa-line text-xl"></i> ยืนยันตัวตน
+        </button>
+        
+        <div id="statusText" class="mt-4 text-xs text-gray-400">Waiting for action...</div>
+    </div>
+
+    <!-- 2. REGISTER FORM (Hidden) -->
+    <div id="registerForm" class="vintage-card w-full max-w-sm p-6 hidden">
+        <div class="paper-texture"></div>
+        <div class="relative z-10 text-center">
+            <div class="profile-img-container">
+                <img id="profileImage" src="https://via.placeholder.com/100?text=USER" alt="Profile" class="w-full h-full object-cover">
+            </div>
+            
+            <h1 class="text-xl font-hand font-bold text-[#5D4037] mb-1">ยินดีต้อนรับ</h1>
+            <p id="displayName" class="text-sm font-bold text-[#8D6E63] mb-6">...</p>
+
+            <form onsubmit="submitRegistration(event)" class="space-y-4 text-left">
+                <!-- Hidden ID -->
+                <input type="hidden" id="userId">
+                
+                <div>
+                    <label class="block text-xs font-bold text-[#8D6E63] mb-1 pl-1">ชื่อร้านค้า</label>
+                    <input type="text" id="shopName" class="input-vintage" placeholder="ระบุชื่อร้านค้า" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-[#8D6E63] mb-1 pl-1">เบอร์โทรศัพท์</label>
+                    <input type="tel" id="phoneNumber" class="input-vintage" placeholder="08x-xxxxxxx" maxlength="10" required pattern="[0-9]{9,10}">
+                </div>
+                <div class="pt-2">
+                    <button type="submit" class="btn-vintage">บันทึกข้อมูล</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const LIFF_ID = "2008895416-3c35BsXZ"; 
+        let userProfile = null;
+
+        function log(msg) {
+            document.getElementById('statusText').innerText = msg;
+            console.log(msg);
+        }
+
+        async function startLineLogin() {
+            try {
+                log("Initializing LIFF...");
+                // Initialize LIFF
+                await liff.init({ liffId: LIFF_ID });
+                
+                // 1. Check if logged in
+                if (liff.isLoggedIn()) {
+                    log("Already Logged In. Getting Profile...");
+                    await getProfileAndShowForm();
+                } else {
+                    // 2. If not, Login (Redirects)
+                    // Note: In external browser, this redirects.
+                    // In LINE App, it should already be logged in.
+                    log("Redirecting to Login...");
+                    liff.login();
+                }
+            } catch (err) {
+                console.error(err);
+                log("Error: " + err.message);
+                // IF init fails (common in GAS iframe), force external login window
+                forceExternalLogin();
+            }
+        }
+        
+        function forceExternalLogin() {
+            Swal.fire({
+                title: 'เปิดหน้าต่างใหม่',
+                text: 'ระบบจะเปิดหน้าต่างใหม่เพื่อยืนยันตัวตน',
+                icon: 'info',
+                confirmButtonText: 'ตกลง',
+                confirmButtonColor: '#8B4513'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    // Open LIFF URL directly in new window to bypass iframe restriction
+                    window.open(`https://liff.line.me/${LIFF_ID}`, '_blank');
+                }
+            });
+        }
+
+        async function getProfileAndShowForm() {
+            try {
+                userProfile = await liff.getProfile();
+                
+                // Show Form
+                document.getElementById('loginSection').classList.add('hidden');
+                document.getElementById('registerForm').classList.remove('hidden');
+                
+                // Fill Data
+                document.getElementById('profileImage').src = userProfile.pictureUrl || "https://via.placeholder.com/100?text=No+Img";
+                document.getElementById('displayName').innerText = userProfile.displayName;
+                document.getElementById('userId').value = userProfile.userId;
+
+                // Check DB
+                checkStatusBackground(userProfile.userId);
+                
+            } catch (err) {
+                log("Profile Error: " + err.message);
+                alert("ไม่สามารถดึงข้อมูลโปรไฟล์ได้: " + err.message);
+            }
+        }
+
+        // --- Auto Run on Load (Try Silent Login) ---
+        window.onload = async function() {
+            try {
+                await liff.init({ liffId: LIFF_ID });
+                if (liff.isLoggedIn()) {
+                    getProfileAndShowForm();
+                }
+            } catch(e) {
+                // Silent fail - wait for user to click button
+                console.log("Silent Init Failed, waiting for user interaction");
+            }
+        };
+
+        function checkStatusBackground(userId) {
+            google.script.run.withSuccessHandler((res) => {
+                if (res.registered) {
+                    document.getElementById('shopName').value = res.shopName;
+                    document.getElementById('phoneNumber').value = res.phone;
+                    Swal.fire({
+                        icon: 'info', title: 'พบข้อมูลเดิม', text: 'ระบบดึงข้อมูลร้านของคุณมาให้แล้วครับ',
+                        toast: true, position: 'top-end', showConfirmButton: false, timer: 3000
+                    });
+                }
+            }).withFailureHandler((err) => {
+                console.warn("DB Check Failed:", err);
+            }).checkMemberStatus(userId);
+        }
+
+        function submitRegistration(e) {
+            e.preventDefault();
+            const shopName = document.getElementById('shopName').value.trim();
+            const phone = document.getElementById('phoneNumber').value.trim();
+            const uid = document.getElementById('userId').value;
+
+            if (!uid) {
+                Swal.fire('Error', 'ไม่พบ User ID', 'error');
+                return;
+            }
+
+            if (shopName.length < 2 || phone.length < 9) {
+                Swal.fire('แจ้งเตือน', 'กรุณากรอกข้อมูลให้ครบ', 'warning');
+                return;
+            }
+
+            Swal.fire({ title: 'บันทึก...', didOpen: () => { Swal.showLoading(); } });
+
+            const data = {
+                userId: uid,
+                displayName: document.getElementById('displayName').innerText,
+                pictureUrl: document.getElementById('profileImage').src,
+                shopName: shopName,
+                phone: phone
+            };
+
+            google.script.run.withSuccessHandler((res) => {
+                if (res.success) {
+                    Swal.fire({
+                        icon: 'success', title: 'สำเร็จ!', text: res.message,
+                        confirmButtonColor: '#2E7D32'
+                    }).then(() => { 
+                        liff.closeWindow();
+                    });
+                } else {
+                    Swal.fire('เกิดข้อผิดพลาด', res.message, 'error');
+                }
+            }).withFailureHandler((err) => {
+                Swal.fire('Error', err.message, 'error');
+            }).registerLineMember(data);
+        }
+    </script>
+</body>
+</html>

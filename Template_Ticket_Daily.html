@@ -1,0 +1,95 @@
+<script>
+    /**
+     * TEMPLATE: DAILY TICKET (80mm)
+     * โครงสร้าง HTML สำหรับตั๋วรายวัน
+     * Update: Use Hardcoded URL for Images
+     */
+    function generateDailyTicketHtml(data) {
+        const {
+            bookerName, productName, tradeDateStr, elecUnit,
+            stallNames, stallTotal, elecTotal, grandTotal,
+            priceExVat, vat, paidAmount, paymentMethodDisplay,
+            timestampStr, tradeDateDisplay, officerName,
+            storageTotal
+        } = data;
+
+        return `
+            <div style="font-family: 'Sarabun', sans-serif; color: black; line-height: 1.4; width: 100%; max-width: 300px; margin: 0 auto; background: white; padding: 10px; font-size: 14px;">
+                
+                <div style="text-align: center;">
+                    <img src="https://img2.pic.in.th/pic/Profile-Alpha_0.png" style="width: 90px; height: auto; margin: 0 auto; display: block;" loading="eager">
+                    <div style="font-size: 18px; font-weight: bold; margin-top: 5px;">ตลาดนัดลาดสวายวินเทจ</div>
+                    <div style="font-size: 14px;">เลขที่ 52/34 หมู่ 5</div>
+                    <div style="font-size: 14px;">ต.ลาดสวาย อ.ลำลูกกา จ.ปทุมธานี 12150</div>
+                    <div style="font-size: 14px;">โทร: 0-92-869-7774 , 0-92-869-7775</div>
+                    <div style="border-bottom: 1px dashed #000; margin: 5px 0;"></div>
+                    <div style="font-size: 16px; font-weight: bold;">ตั๋ว/ใบเสร็จ (รายวัน)</div>
+                </div>
+
+                <div style="margin-top: 5px;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="text-align: left;">วันที่ทำรายการ : </span><span style="text-align: right;">${timestampStr}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="text-align: left;">รหัสพนักงาน : </span><span style="text-align: right;">${officerName}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="text-align: left;">วันที่ทำการค้า : </span><span style="text-align: right; font-weight: bold;">${tradeDateDisplay}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="text-align: left;">สินค้า : </span><span style="text-align: right; font-weight: bold;">${productName} ${bookerName}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <span style="text-align: left;">ล็อค : </span>
+                        <span style="text-align: right; font-weight: bold; word-break: break-word; max-width: 70%;">${stallNames}</span>
+                    </div>
+                </div>
+                <div style="border-bottom: 1px dashed #000; margin: 5px 0;"></div>
+
+                <div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="text-align: left;">ค่าล็อครวม : </span><span style="text-align: right;">${fmtMoney(stallTotal)}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="text-align: left;">ค่าไฟฟ้ารวม : </span><span style="text-align: right;">${fmtMoney(elecTotal)}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="text-align: left;">ค่าฝากของ : </span><span style="text-align: right;">${fmtMoney(storageTotal)}</span>
+                    </div>
+                </div>
+                <div style="border-bottom: 1px dashed #000; margin: 5px 0;"></div>
+
+                <div style="margin-top: 2px;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <tr>
+                            <td style="text-align: right; padding-right: 5px; white-space: nowrap;">ราคาไม่รวมภาษีมูลค่าเพิ่ม :</td>
+                            <td style="text-align: right; width: 90px;">${fmtMoney(priceExVat)}</td>
+                        </tr>
+                        <tr>
+                            <td style="text-align: right; padding-right: 5px; white-space: nowrap;">ภาษีมูลค่าเพิ่ม 7% :</td>
+                            <td style="text-align: right;">${fmtMoney(vat)}</td>
+                        </tr>
+                        <tr>
+                            <td style="text-align: right; padding-right: 5px; font-weight: bold; white-space: nowrap;">รวมเป็นเงินทั้งสิ้น :</td>
+                            <td style="text-align: right; font-weight: bold; font-size: 16px;">${fmtMoney(grandTotal)}</td>
+                        </tr>
+                        <tr><td colspan="2" style="height: 10px;"></td></tr>
+                        <tr>
+                            <td style="text-align: right; padding-right: 5px; font-weight: bold; white-space: nowrap;">การชำระเงิน [${paymentMethodDisplay}] :</td>
+                            <td style="text-align: right; font-weight: bold; font-size: 16px;">${fmtMoney(paidAmount)}</td>
+                        </tr>
+                    </table>
+                </div>
+                <div style="border-bottom: 1px dashed #000; margin: 5px 0;"></div>
+                
+                <div style="margin-top: 15px; text-align: center;">
+                    <div style="font-size: 12px; margin-bottom: 5px;">ติดต่อสอบถามเพิ่มเติมได้ที่</div>
+                    <img src="https://img5.pic.in.th/file/secure-sv1/S_gainfriends_2dbarcodes_BW73c64bbdc0272b36.png" style="width: 100px; height: auto; margin: 0 auto; display: block;" loading="eager">
+                    <div style="font-size: 12px; margin-top: 5px;">@ladsawaivintage</div>
+                    <div style="height: 4px;"></div>
+                    <div style="font-size: 8px;">Power by PJMJK</div>
+                </div>
+            </div>
+        `;
+    }
+</script>

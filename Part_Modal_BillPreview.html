@@ -1,0 +1,256 @@
+<!-- Bill Preview Modal -->
+<div id="billPreviewModal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-[90]">
+    <!-- ปรับ max-h และจัด layout ให้กระชับ -->
+    <div class="relative bg-white rounded-none md:rounded-lg shadow-2xl w-full max-w-sm mx-auto animate-pop-in flex flex-col max-h-[98vh] overflow-hidden">
+        
+        <!-- Header Controls -->
+        <div class="bg-gray-800 px-3 py-2 flex justify-between items-center shrink-0">
+            <span class="text-xs text-gray-300 font-bold uppercase tracking-widest">ตัวอย่างสำหรับส่งลูกค้า</span>
+            <button onclick="closeBillPreview()" class="text-white hover:text-red-400 transition">
+                <i class="fa-solid fa-times text-lg"></i>
+            </button>
+        </div>
+
+        <!-- Capture Area -->
+        <div id="billCaptureArea" class="bg-white p-3 overflow-y-auto">
+            
+            <!-- 1. Header & Logo (Super Compact) -->
+            <div class="flex flex-col items-center mb-2 border-b border-gray-100 pb-2">
+                <img src="https://img2.pic.in.th/pic/Profile-Alpha_0.png" class="w-12 h-12 object-contain mb-1 drop-shadow-md">
+                <h2 class="text-base font-bold text-gray-800 leading-tight">ตลาดนัดลาดสวายวินเทจ</h2>
+                <p class="text-[10px] text-purple-600 font-bold">ใบแจ้งยอดชำระเงิน (Invoice)</p>
+            </div>
+
+            <!-- 2. Customer Info (Combined) -->
+            <div class="mb-2 bg-purple-50 p-2 rounded-lg border border-purple-100">
+                <div class="flex justify-between items-start mb-0.5">
+                    <span class="text-[10px] text-gray-500 font-bold uppercase shrink-0 mt-0.5">ประจำเดือน</span>
+                    <span class="text-xs font-bold text-purple-700 text-right leading-tight" id="bill_month">-</span>
+                </div>
+                <div class="flex justify-between items-start">
+                    <span class="text-[10px] text-gray-500 font-bold uppercase shrink-0 mt-0.5">ผู้จอง/สินค้า</span>
+                    <span class="text-xs font-bold text-gray-800 text-right leading-tight break-words max-w-[75%]" id="bill_customer">-</span>
+                </div>
+            </div>
+
+            <!-- 3. Details Table -->
+            <div class="mb-2">
+                <div class="border-b border-gray-200 pb-1 mb-1 flex justify-between text-gray-500 text-[9px] font-bold uppercase">
+                    <span id="bill_details_header">รายการ (รายละเอียด)</span>
+                    <span>จำนวนเงิน</span>
+                </div>
+                
+                <!-- Items Body (Smaller font) -->
+                <div id="bill_items_body" class="text-[11px] text-gray-700 space-y-1.5 font-medium leading-snug"></div>
+                
+                <!-- Totals -->
+                <div class="mt-2 pt-2 border-t border-gray-200">
+                    <div class="flex justify-between items-center mb-0.5">
+                        <span class="text-xs font-bold text-gray-600">ยอดรวมทั้งสิ้น</span>
+                        <span class="text-base font-bold text-purple-700" id="bill_grand_total">0.00</span>
+                    </div>
+                    <div class="flex justify-between items-center mb-0.5 text-green-600">
+                        <span class="text-[10px]">ชำระแล้ว</span>
+                        <span class="font-bold text-[11px]" id="bill_paid">0.00</span>
+                    </div>
+                    <div class="flex justify-between items-center pt-1 border-t border-dashed border-gray-200">
+                        <span class="font-bold text-red-600 text-xs">ยอดค้างชำระ</span>
+                        <span class="font-bold text-lg text-red-600" id="bill_remaining">0.00</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. Bank Footer (Compact) -->
+            <div class="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border border-green-200 p-2 relative overflow-hidden">
+                <div class="absolute -right-3 -top-3 text-green-100 opacity-50">
+                    <i class="fa-solid fa-money-bill-transfer text-8xl"></i>
+                </div>
+                
+                <div class="relative z-10">
+                    <p class="text-[9px] text-green-600 font-bold uppercase mb-1 tracking-wide">ช่องทางการชำระเงิน</p>
+                    <div class="flex items-center gap-2 mb-1">
+                        <div class="w-6 h-6 bg-white rounded-full flex items-center justify-center shadow-sm p-0.5">
+                            <img src="https://img2.pic.in.th/pic/kbank-logo.png" class="w-full h-full object-contain" onerror="this.src='https://cdn-icons-png.flaticon.com/512/2534/2534195.png'"> 
+                        </div>
+                        <div>
+                            <div class="font-bold text-green-800 text-sm leading-none">204-1-25235-1</div>
+                            <div class="text-[9px] text-green-700">ธนาคารกสิกรไทย</div>
+                        </div>
+                    </div>
+                    <div class="text-[9px] text-green-800 font-medium bg-white bg-opacity-60 p-1 rounded mb-1 leading-tight">
+                        ชื่อบัญชี : <span class="font-bold">บจก.เดอะเบสพัฒนาและธุรกิจ</span>
+                    </div>
+                    
+                    <div class="flex flex-col items-center justify-center pt-1 border-t border-green-200 border-dashed">
+                        <p class="text-[8px] text-green-600 mb-0.5">*กรุณาส่งสลิปโอนเงินเพื่อยืนยันสิทธิ์</p>
+                        <!-- QR Code Line -->
+                        <img src="https://img5.pic.in.th/file/secure-sv1/S_gainfriends_2dbarcodes_BW73c64bbdc0272b36.png" class="w-16 h-auto rounded shadow-sm border border-white">
+                        <p class="text-[8px] text-green-500 mt-0.5">@ladsawaivintage</p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Action Footer -->
+        <div class="bg-gray-100 px-3 py-2 flex justify-between gap-3 shrink-0">
+             <button onclick="closeBillPreview()" class="px-4 py-1.5 bg-white text-gray-600 rounded-lg font-bold shadow-sm hover:bg-gray-50 text-xs flex-1 border border-gray-300">ปิด</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Logic for Bill Preview (Detailed Breakdown)
+    function openBillPreview(bookingId) {
+        if (typeof monthlyDataCache === 'undefined' || !monthlyDataCache) {
+            alert("ข้อมูลยังไม่พร้อม กรุณารีเฟรชหน้าเว็บ");
+            return;
+        }
+
+        const item = monthlyDataCache.find(x => x.id === bookingId);
+        if (!item) {
+            console.error("Booking not found in cache");
+            return;
+        }
+
+        // Populate Basic Info
+        document.getElementById('bill_month').innerText = item.bookingMonth || '-';
+        document.getElementById('bill_customer').innerText = `${item.bookerName} / ${item.product || '-'}`;
+
+        // --- Calculate Day Counts ---
+        const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+        
+        let counts = { 3: 0, 6: 0, 0: 0 }; 
+        
+        if (item.bookingMonth) {
+            const parts = item.bookingMonth.split(' '); 
+            if(parts.length >= 2) {
+                const monthIdx = thaiMonths.indexOf(parts[0]);
+                const year = parseInt(parts[1]) - 543;
+                if (monthIdx >= 0) {
+                    const date = new Date(year, monthIdx, 1);
+                    while (date.getMonth() === monthIdx) {
+                        const day = date.getDay();
+                        if (counts[day] !== undefined) counts[day]++;
+                        date.setDate(date.getDate() + 1);
+                    }
+                }
+            }
+        }
+
+        // Parse Stalls
+        let stallsObj = [];
+        try { 
+            if (item.stallDetails && item.stallDetails !== "undefined") {
+                stallsObj = JSON.parse(item.stallDetails); 
+            } else if (item.stalls) {
+                const names = item.stalls.split(',').map(s => s.trim());
+                names.forEach(n => stallsObj.push({ name: n, days: [3,6,0] })); 
+            }
+        } catch (e) { console.warn(e); }
+
+        const dayConfig = [
+            { id: 3, label: "วันพุธ", color: "text-green-700" },
+            { id: 6, label: "วันเสาร์", color: "text-purple-700" },
+            { id: 0, label: "วันอาทิตย์", color: "text-red-700" }
+        ];
+
+        let html = "";
+        let totalDaysAll = 0;
+        
+        const elecUnit = parseFloat(item.elecUnit || 0);
+        const elecPricePerUnit = 10;
+        const totalElecCostPerDay = elecUnit * elecPricePerUnit; 
+        
+        dayConfig.forEach(cfg => {
+            const dayId = cfg.id;
+            const activeStalls = stallsObj.filter(s => s.days && s.days.includes(dayId));
+            
+            if (activeStalls.length > 0) {
+                const dayCount = counts[dayId];
+                totalDaysAll += dayCount;
+                
+                const stallNames = activeStalls.map(s => s.name).join(", ");
+                
+                let pricePerDay = 0;
+                activeStalls.forEach(s => {
+                    const sData = stallsData.find(ref => ref.name === s.name);
+                    if (sData) {
+                        let p = 0;
+                        if (item.customerType === 'VIP') {
+                            p = 0;
+                        } else if (item.customerType === 'Regular') {
+                            if(dayId===3) p = sData.priceWed; 
+                            else if(dayId===6) p = sData.priceSat; 
+                            else p = sData.priceSun;
+                        } else {
+                            // Standard customer logic
+                            // NO LOGIC CHANGE: Uses the logic agreed in previous steps
+                            // Check Full Package locally within loop is complex, relying on pre-calc or simple fallback
+                            // Re-implementing logic from Scripts_Monthly calculation for display consistencies:
+                            // Check Full Package (Wed+Sat+Sun)
+                            const allSelectedDays = new Set();
+                            stallsObj.forEach(so => { if(so.days) so.days.forEach(d => allSelectedDays.add(parseInt(d))); });
+                            const isFullPackage = allSelectedDays.has(3) && allSelectedDays.has(6) && allSelectedDays.has(0);
+
+                            if (isFullPackage && parseFloat(sData.priceMonth || 0) > 0) {
+                                p = sData.priceMonth;
+                            } else {
+                                if(dayId===3) p = sData.priceWed; 
+                                else if(dayId===6) p = sData.priceSat; 
+                                else p = sData.priceSun;
+                            }
+                        }
+                        pricePerDay += parseFloat(p || 0);
+                    }
+                });
+
+                const totalForDayGroup = (pricePerDay * dayCount) + (totalElecCostPerDay * dayCount);
+
+                // Line 1: Header
+                html += `
+                    <div class="mb-0.5 mt-1">
+                        <div class="font-bold text-gray-800 text-[11px]">${item.bookingMonth.split(' ')[0]} ${cfg.label} ล็อค : ${stallNames}</div>
+                    </div>
+                `;
+                // Line 2: Breakdown
+                html += `
+                    <div class="flex justify-between items-start pl-2 text-gray-500 text-[9px]">
+                        <span>(${parseFloat(pricePerDay).toLocaleString(undefined, {minimumFractionDigits:0})} x ${dayCount}) + (${parseFloat(totalElecCostPerDay).toLocaleString(undefined, {minimumFractionDigits:0})} x ${dayCount})</span>
+                        <span class="font-bold text-gray-800 text-[11px]">${totalForDayGroup.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                    </div>
+                `;
+            }
+        });
+
+        // Update Header with Total Days
+        document.getElementById('bill_details_header').innerText = `รายการ (รายละเอียด) : จำนวน ${totalDaysAll} นัด`;
+
+        // Storage Fee
+        const storageFee = parseFloat(item.storageFee || 0);
+        if (storageFee > 0) {
+             html += `
+                <div class="flex justify-between items-center mt-1 pt-1 border-t border-dashed border-gray-200">
+                    <span class="font-bold text-gray-700 text-[10px]">ค่าฝากของ</span>
+                    <span class="font-bold text-gray-800 text-[11px]">${storageFee.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                </div>
+             `;
+        }
+
+        document.getElementById('bill_items_body').innerHTML = html;
+
+        const total = parseFloat(item.totalPrice || 0);
+        const paid = parseFloat(item.paid || 0);
+        const remain = total - paid;
+
+        document.getElementById('bill_grand_total').innerText = total.toLocaleString(undefined, {minimumFractionDigits: 2});
+        document.getElementById('bill_paid').innerText = paid.toLocaleString(undefined, {minimumFractionDigits: 2});
+        document.getElementById('bill_remaining').innerText = remain.toLocaleString(undefined, {minimumFractionDigits: 2});
+        
+        document.getElementById('billPreviewModal').classList.remove('hidden');
+    }
+
+    function closeBillPreview() {
+        document.getElementById('billPreviewModal').classList.add('hidden');
+    }
+</script>

@@ -1,0 +1,333 @@
+<script>
+    // เก็บ Context ของรายการที่กำลังจ่ายเงิน เพื่อใช้ Refresh ข้อมูลให้ถูกต้อง
+    let currentPayContext = {
+        bookingId: null,
+        bookerName: null,
+        productName: null
+    };
+
+    function openPaymentModal(bookingId, bookerName, productName) {
+        document.getElementById('paymentModalTitle').innerText = "บันทึกการชำระเงิน";
+        document.getElementById('pay_bookingId').value = bookingId;
+        document.getElementById('pay_paymentId').value = ""; // Clear for new mode
+        
+        // Default Date: Today (Local)
+        const today = new Date();
+        const localDate = new Date(today.getTime() - (today.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+        document.getElementById('pay_date').value = localDate;
+
+        document.getElementById('pay_amount').value = '';
+        document.getElementById('pay_note').value = '';
+        document.querySelector('input[name="pay_method"][value="Cash"]').checked = true;
+        
+        // Update Context
+        currentPayContext = {
+            bookingId: bookingId,
+            bookerName: bookerName,
+            productName: productName
+        };
+
+        toggleSlipInput();
+        const modal = document.getElementById('paymentActionModal');
+        modal.style.display = 'flex';
+        modal.classList.remove('opacity-0', 'pointer-events-none');
+    }
+
+    // New Function for Edit Mode
+    function startEditPayment(payment) {
+        const decoded = decodeURIComponent(payment);
+        const p = JSON.parse(decoded);
+        
+        document.getElementById('paymentModalTitle').innerText = "แก้ไขข้อมูลชำระเงิน";
+        document.getElementById('pay_paymentId').value = p.paymentId; // Set Edit Mode
+        document.getElementById('pay_bookingId').value = currentPayContext.bookingId; // Keep context
+        document.getElementById('pay_date').value = p.date; // Set existing date (YYYY-MM-DD)
+        document.getElementById('pay_amount').value = parseFloat(p.amount);
+        document.getElementById('pay_note').value = p.note;
+        
+        const method = p.method === 'Transfer' ? 'Transfer' : 'Cash';
+        document.querySelector(`input[name="pay_method"][value="${method}"]`).checked = true;
+        
+        toggleSlipInput();
+        const modal = document.getElementById('paymentActionModal');
+        modal.style.display = 'flex';
+        modal.classList.remove('opacity-0', 'pointer-events-none');
+    }
+
+    function deletePayment(paymentId) {
+        showConfirm("ยืนยันการลบรายการชำระเงินนี้?", "ยืนยันการลบ", () => {
+            showLoader();
+            google.script.run
+                .withSuccessHandler((res) => {
+                    hideLoader();
+                    if (res.success) {
+                        showAlert(res.message, "สำเร็จ", false);
+                        fetchMonthlyBookings(); // Refresh main table
+                        if (currentPayContext.bookingId) {
+                            loadPaymentDetails(currentPayContext.bookingId, currentPayContext.bookerName, currentPayContext.productName);
+                        }
+                    } else {
+                        showAlert(res.message, "ข้อผิดพลาด", true);
+                    }
+                })
+                .withFailureHandler((err) => {
+                    hideLoader();
+                    showAlert("Error: " + err, "ข้อผิดพลาด", true);
+                })
+                .deletePaymentTransaction(paymentId, currentPayContext.bookingId);
+        });
+    }
+
+    function closePaymentModal() {
+        const modal = document.getElementById('paymentActionModal');
+        modal.classList.add('opacity-0', 'pointer-events-none');
+        setTimeout(() => {
+            modal.style.display = 'none';
+        }, 300);
+    }
+
+    function resetPaymentInfo() {
+        const pc = document.getElementById('paymentContent');
+        if (pc) pc.classList.add('hidden');
+        const pp = document.getElementById('paymentPlaceholder');
+        if (pp) pp.classList.remove('hidden');
+        const phb = document.getElementById('paymentHistoryBody');
+        if (phb) phb.innerHTML = '';
+        const sbr = document.getElementById('selectedBookingRef');
+        if (sbr) sbr.innerText = '';
+        
+        const btnPrint = document.getElementById('btnPrintMonthlyHeader');
+        if (btnPrint) btnPrint.classList.add('hidden');
+        const btnPreview = document.getElementById('btnPreviewMonthlyHeader');
+        if (btnPreview) btnPreview.classList.add('hidden');
+    }
+
+    function loadPaymentDetails(bookingId, bookerName, productName) {
+        const container = document.getElementById('paymentContent');
+        const placeholder = document.getElementById('paymentPlaceholder');
+        const tbody = document.getElementById('paymentHistoryBody');
+        const refLabel = document.getElementById('selectedBookingRef');
+        const btnPrint = document.getElementById('btnPrintMonthlyHeader');
+        const btnPreview = document.getElementById('btnPreviewMonthlyHeader');
+
+        if (placeholder) placeholder.classList.add('hidden');
+        if (container) container.classList.remove('hidden');
+        
+        // Update Context
+        currentPayContext = {
+            bookingId: bookingId,
+            bookerName: bookerName,
+            productName: productName
+        };
+        
+        if (refLabel) {
+            refLabel.innerText = `${bookerName} / ${productName || '-'}`;
+        }
+
+        if (btnPrint) btnPrint.classList.add('hidden');
+        if (btnPreview) btnPreview.classList.add('hidden');
+
+        if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-gray-400">กำลังโหลด...</td></tr>';
+
+        google.script.run
+            .withSuccessHandler((res) => {
+                if (!tbody) return;
+                tbody.innerHTML = '';
+                
+                if (res.success && res.data.length > 0) {
+                    const latestPayment = res.data[res.data.length - 1]; 
+                    
+                    if (btnPrint) {
+                        btnPrint.classList.remove('hidden');
+                        btnPrint.onclick = function() {
+                            printMonthlyTicket(
+                                bookingId, 
+                                latestPayment.paymentId, 
+                                latestPayment.amount, 
+                                latestPayment.date, 
+                                latestPayment.time, 
+                                latestPayment.method
+                            );
+                        };
+                    }
+                    
+                    if (btnPreview) {
+                        btnPreview.classList.remove('hidden');
+                        btnPreview.onclick = function() {
+                            openMonthlyTicketPreview(
+                                bookingId, 
+                                latestPayment.paymentId, 
+                                latestPayment.amount, 
+                                latestPayment.date, 
+                                latestPayment.time, 
+                                latestPayment.method
+                            );
+                        };
+                    }
+
+                    const isAdmin = (currentAdmin && (currentAdmin.role === 'Admin' || currentAdmin.role === 'Super Admin'));
+
+                    res.data.forEach(p => {
+                        let slipHtml = '-';
+                        if (p.slipUrl && p.slipUrl.trim() !== "") {
+                            // FIX: Updated slip button to open lightbox
+                            slipHtml = `<button onclick="viewFullSlipUrl('${p.slipUrl}')" class="inline-flex items-center px-2 py-1 bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-colors text-[10px] font-bold border border-blue-200"><i class="fa-solid fa-image mr-1"></i> ดูสลิป</button>`;
+                        }
+
+                        let actionBtns = '-';
+                        if (isAdmin) {
+                            const pJson = encodeURIComponent(JSON.stringify(p));
+                            actionBtns = `
+                                <div class="flex items-center justify-center gap-1">
+                                    <button onclick="startEditPayment('${pJson}')" class="text-blue-500 hover:text-blue-700 bg-blue-50 p-1 rounded"><i class="fa-solid fa-pencil"></i></button>
+                                    <button onclick="deletePayment('${p.paymentId}')" class="text-red-500 hover:text-red-700 bg-red-50 p-1 rounded"><i class="fa-solid fa-trash"></i></button>
+                                </div>
+                            `;
+                        }
+
+                        const row = `
+                            <tr class="hover:bg-gray-50 transition-colors">
+                                <td class="px-2 py-2 border-b text-gray-600 text-xs">${p.date}</td>
+                                <td class="px-2 py-2 border-b text-gray-500 text-xs">${p.time}</td>
+                                <td class="px-2 py-2 border-b font-bold text-green-600 text-xs">${parseFloat(p.amount).toLocaleString()}</td>
+                                <td class="px-2 py-2 border-b text-gray-700 text-xs">${p.method === 'Cash' ? '<span class="bg-gray-100 px-1 rounded text-[10px]">เงินสด</span>' : '<span class="bg-blue-50 text-blue-600 px-1 rounded text-[10px]">โอน</span>'}</td>
+                                <td class="px-2 py-2 border-b text-center text-xs">${slipHtml}</td>
+                                <td class="px-2 py-2 border-b text-gray-400 italic text-[10px] truncate max-w-[100px]" title="${p.note}">${p.note}</td>
+                                <td class="px-2 py-2 border-b text-center text-xs">${actionBtns}</td>
+                            </tr>`;
+                        tbody.innerHTML += row;
+                    });
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-gray-400 text-xs">ไม่มีประวัติการชำระเงิน</td></tr>';
+                }
+            })
+            .withFailureHandler((err) => {
+                if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-red-400 text-xs">เกิดข้อผิดพลาดในการโหลด</td></tr>';
+            })
+            .getPaymentHistory(bookingId);
+    }
+
+    function previewSlip(input) {
+        const previewContainer = document.getElementById('slipPreviewContainer');
+        const previewImage = document.getElementById('slipPreview');
+        if (input.files && input.files[0]) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                previewImage.src = e.target.result;
+                previewContainer.classList.remove('hidden');
+            }
+            reader.readAsDataURL(input.files[0]);
+        } else {
+            previewImage.src = "";
+            previewContainer.classList.add('hidden');
+        }
+    }
+
+    function toggleSlipInput() {
+        const methodEl = document.querySelector('input[name="pay_method"]:checked');
+        const method = methodEl ? methodEl.value : 'Cash';
+        const slipSection = document.getElementById('slipUploadSection');
+        if (method === 'Transfer') {
+            slipSection.classList.remove('hidden');
+        } else {
+            slipSection.classList.add('hidden');
+            document.getElementById('pay_slip').value = "";
+            document.getElementById('slipPreviewContainer').classList.add('hidden');
+        }
+    }
+
+    function submitPayment() {
+        const bookingId = document.getElementById('pay_bookingId').value;
+        const paymentId = document.getElementById('pay_paymentId').value;
+        const amount = document.getElementById('pay_amount').value;
+        const date = document.getElementById('pay_date').value; // Get Date
+        const methodEl = document.querySelector('input[name="pay_method"]:checked');
+        const method = methodEl ? methodEl.value : 'Cash';
+        const note = document.getElementById('pay_note').value;
+        const slipInput = document.getElementById('pay_slip');
+
+        if (!date) {
+            showAlert("กรุณาระบุวันที่ชำระเงิน", "ข้อมูลไม่ครบถ้วน", true);
+            return;
+        }
+
+        if (!amount || amount <= 0) {
+            showAlert("กรุณาระบุยอดเงิน", "ข้อมูลไม่ครบถ้วน", true);
+            return;
+        }
+
+        const paymentData = {
+            bookingId: bookingId,
+            paymentId: paymentId, // Send ID if Editing
+            amount: amount,
+            date: date, // Send Date
+            method: method,
+            note: note
+        };
+
+        if (method === 'Transfer' && slipInput.files.length > 0) {
+            const file = slipInput.files[0];
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                paymentData.slipFile = e.target.result; 
+                paymentData.slipName = file.name;
+                paymentData.slipType = file.type;
+                sendPaymentData(paymentData);
+            };
+            reader.readAsDataURL(file);
+        } else {
+            // Check required slip for new transfer payments (not strict on edit if not changing)
+            if (method === 'Transfer' && !paymentId && slipInput.files.length === 0) {
+                 showAlert("กรุณาแนบสลิปโอนเงิน", "ข้อมูลไม่ครบถ้วน", true);
+                 return;
+            }
+            sendPaymentData(paymentData);
+        }
+    }
+
+    function sendPaymentData(data) {
+        showLoader();
+        google.script.run
+            .withSuccessHandler((res) => {
+                hideLoader();
+                closePaymentModal();
+                if (res.success) {
+                    showAlert(res.message, "สำเร็จ", false);
+                    fetchMonthlyBookings(); // Refresh main table to update status/paid
+                    
+                    if (currentPayContext.bookingId) {
+                        loadPaymentDetails(currentPayContext.bookingId, currentPayContext.bookerName, currentPayContext.productName);
+                    }
+                } else {
+                    showAlert("เกิดข้อผิดพลาด: " + res.message, "ข้อผิดพลาด", true);
+                }
+            })
+            .withFailureHandler((err) => {
+                hideLoader();
+                showAlert("Error: " + err, "ข้อผิดพลาด", true);
+            })
+            .saveMonthlyPayment(data);
+    }
+    
+    // FIX: Lightbox Functions
+    function viewFullSlip() {
+        const src = document.getElementById('slipPreview').src;
+        if(src && src !== "") {
+            document.getElementById('slipLightboxImg').src = src;
+            document.getElementById('slipLightbox').classList.remove('hidden');
+        }
+    }
+    
+    // FIX: View Slip from URL (for History Table)
+    function viewFullSlipUrl(url) {
+        if(url && url !== "") {
+            document.getElementById('slipLightboxImg').src = url;
+            document.getElementById('slipLightbox').classList.remove('hidden');
+        }
+    }
+
+    function closeFullSlip() {
+        document.getElementById('slipLightbox').classList.add('hidden');
+        document.getElementById('slipLightboxImg').src = "";
+    }
+</script>

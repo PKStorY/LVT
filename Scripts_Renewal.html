@@ -1,0 +1,584 @@
+<script>
+    // --- RENEWAL MODULE VARIABLES ---
+    let renewalCandidates = [];
+    let renewalState = []; 
+
+    // --- UI FUNCTIONS ---
+
+    function openRenewalModal() {
+        if (!currentAdmin) return;
+        
+        const today = new Date();
+        const currentMonth = today.getMonth();
+        const currentYear = today.getFullYear();
+        
+        const monthSelects = ['renewalSourceMonth', 'renewalTargetMonth'];
+        const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+        
+        monthSelects.forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.innerHTML = '';
+            
+            for (let i = -1; i <= 3; i++) {
+                const d = new Date(currentYear, currentMonth + i, 1);
+                const val = `${thaiMonths[d.getMonth()]} ${d.getFullYear() + 543}`;
+                const rawVal = JSON.stringify({ year: d.getFullYear(), month: d.getMonth(), label: val });
+                
+                const opt = document.createElement('option');
+                opt.value = rawVal; 
+                opt.innerText = val;
+                
+                if (id === 'renewalSourceMonth' && i === 0) opt.selected = true; 
+                if (id === 'renewalTargetMonth' && i === 1) opt.selected = true; 
+                
+                el.appendChild(opt);
+            }
+        });
+
+        document.getElementById('renewalModal').classList.remove('hidden');
+        fetchRenewalCandidates();
+    }
+
+    function closeRenewalModal() {
+        document.getElementById('renewalModal').classList.add('hidden');
+        const dd = document.getElementById('renewalStallSearchDropdown');
+        if(dd) dd.classList.add('hidden');
+    }
+
+    function fetchRenewalCandidates() {
+        const sourceJson = document.getElementById('renewalSourceMonth').value;
+        const targetJson = document.getElementById('renewalTargetMonth').value;
+        
+        if (!sourceJson || !targetJson) return;
+        
+        const sourceObj = JSON.parse(sourceJson);
+        const targetObj = JSON.parse(targetJson);
+        
+        const container = document.getElementById('renewalListContainer');
+        container.innerHTML = '<div class="flex flex-col items-center justify-center h-full text-gray-400"><i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i><p>กำลังตรวจสอบข้อมูล...</p></div>';
+        document.getElementById('btnConfirmRenew').disabled = true;
+
+        google.script.run
+            .withSuccessHandler((res) => {
+                if (res.success) {
+                    renewalCandidates = res.data;
+                    initRenewalState(res.data);
+                    renderRenewalTable();
+                } else {
+                    container.innerHTML = `<div class="flex items-center justify-center h-full text-red-400">${res.message}</div>`;
+                }
+            })
+            .withFailureHandler((err) => {
+                container.innerHTML = `<div class="flex items-center justify-center h-full text-red-400">Error: ${err}</div>`;
+            })
+            .getRenewalCandidates(sourceObj.label, targetObj.label);
+    }
+
+    // --- LOGIC: INITIALIZE STATE ---
+    function initRenewalState(data) {
+        renewalState = data.map(item => {
+            const state = {
+                checked: (item.status !== 'conflict' && item.status !== 'renewed'),
+                days: [...item.defaultDays], 
+                dayStalls: { 3: [], 6: [], 0: [] },
+                targetType: item.customerType || 'Standard',
+                isEditing: false 
+            };
+
+            // Parse stalls logic
+            if (item.stallDetails && item.stallDetails !== "" && item.stallDetails !== "undefined") {
+                try {
+                    const details = JSON.parse(item.stallDetails); 
+                    details.forEach(d => {
+                        if (d.days) {
+                            d.days.forEach(day => {
+                                if (state.dayStalls[day]) {
+                                    if (!state.dayStalls[day].includes(d.name)) state.dayStalls[day].push(d.name);
+                                }
+                            });
+                        }
+                    });
+                } catch (e) {
+                    fillFallbackStalls(state, item.stalls);
+                }
+            } else {
+                fillFallbackStalls(state, item.stalls);
+            }
+            return state;
+        });
+    }
+
+    function fillFallbackStalls(state, stallsStr) {
+        if (!stallsStr) return;
+        const stalls = stallsStr.split(',').map(s => s.trim()).filter(s => s !== "");
+        state.days.forEach(d => {
+            if (state.dayStalls[d]) {
+                state.dayStalls[d] = [...stalls];
+            }
+        });
+        [0, 3, 6].forEach(d => {
+            if (state.dayStalls[d].length === 0 && state.days.includes(d)) {
+                 state.dayStalls[d] = [...stalls];
+            }
+        });
+    }
+
+    // --- RENDER TABLE ---
+    function renderRenewalTable() {
+        const container = document.getElementById('renewalListContainer');
+        if (renewalCandidates.length === 0) {
+            container.innerHTML = '<div class="flex items-center justify-center h-full text-gray-400">ไม่พบข้อมูลรายเดือนในเดือนต้นทาง</div>';
+            document.getElementById('btnConfirmRenew').disabled = true;
+            updateRenewalStats(); 
+            return;
+        }
+
+        let html = `
+            <table class="w-full text-sm text-left border-collapse">
+                <thead class="bg-gray-100 text-gray-600 font-bold sticky top-0 z-10 shadow-sm border-b border-gray-200">
+                    <tr>
+                        <th class="px-3 py-3 text-center w-10"><input type="checkbox" onchange="toggleAllRenewal(this)" checked class="form-checkbox h-4 w-4 text-blue-600 rounded"></th>
+                        <th class="px-3 py-3 w-1/5">ลูกค้า/สินค้า</th>
+                        <th class="px-3 py-3 w-2/5">ล็อค</th>
+                        <th class="px-3 py-3 text-left w-1/6">ประเภทลูกค้า</th>
+                        <th class="px-3 py-3 text-center w-1/6">วันลงขาย</th>
+                        <th class="px-3 py-3 text-center w-24">สถานะ</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 bg-white">
+        `;
+
+        renewalCandidates.forEach((item, index) => {
+            const state = renewalState[index];
+            const isConflict = item.status === 'conflict';
+            const isRenewed = item.status === 'renewed';
+            const isDisabled = isConflict || isRenewed;
+            
+            const isEditing = state.isEditing;
+            const settingsDisabled = !isEditing || isDisabled; 
+            const settingsDisabledAttr = settingsDisabled ? "disabled" : "";
+            const opacityClass = settingsDisabled ? "opacity-60 grayscale-[50%]" : "";
+
+            const trClass = isDisabled ? "bg-gray-50 opacity-60" : "hover:bg-blue-50 transition-colors";
+            const checkAttr = (state.checked && !isDisabled) ? "checked" : "";
+            const disabledAttr = isDisabled ? "disabled" : "";
+
+            let statusBadge = '<span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 ring-1 ring-inset ring-green-600/20"><i class="fa-solid fa-check-circle mr-1"></i> พร้อม</span>';
+            if (isRenewed) statusBadge = '<span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-700/10"><i class="fa-solid fa-circle-check mr-1"></i> ต่อแล้ว</span>';
+            if (isConflict) statusBadge = '<span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/10"><i class="fa-solid fa-circle-exclamation mr-1"></i> ไม่ว่าง</span>';
+
+            // --- Stalls Column ---
+            let dayStallsHtml = "";
+            const dayLabels = { 3: "พ.", 6: "ส.", 0: "อา." };
+            const dayColors = { 3: "text-green-700 bg-green-50 border-green-200", 6: "text-purple-700 bg-purple-50 border-purple-200", 0: "text-red-700 bg-red-50 border-red-200" };
+            
+            [3, 6, 0].forEach(day => {
+                const isDaySelected = state.days.includes(day);
+                if (isDaySelected) {
+                    const stalls = state.dayStalls[day];
+                    let stallTags = "";
+                    stalls.forEach(s => {
+                        stallTags += `
+                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-white border border-gray-300 shadow-sm mr-1 mb-0.5">
+                                ${s} <button onclick="removeRenewalStall(${index}, ${day}, '${s}')" class="ml-1 text-red-400 hover:text-red-600 font-bold ${settingsDisabled ? 'hidden' : ''}">×</button>
+                            </span>
+                        `;
+                    });
+
+                    if (!settingsDisabled) {
+                        stallTags += `
+                            <button onclick="openRenewalStallSearch(event, ${index}, ${day})" class="text-blue-500 hover:text-blue-700 text-xs px-1" title="เพิ่มล็อค">
+                                <i class="fa-solid fa-plus-circle pointer-events-none"></i>
+                            </button>
+                        `;
+                    }
+
+                    dayStallsHtml += `
+                        <div class="flex items-center mb-1 last:mb-0">
+                            <span class="text-xs font-bold w-6 shrink-0 ${dayColors[day].split(' ')[0]}">${dayLabels[day]}</span>
+                            <div class="flex flex-wrap items-center bg-gray-50 rounded px-1 py-0.5 flex-1 border border-gray-200 min-h-[24px]">
+                                ${stallTags}
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+
+            // --- Type Column ---
+            const types = [
+                {val: 'Standard', label: 'รายเดือน', color: 'text-purple-700'},
+                {val: 'Regular', label: 'ประจำ', color: 'text-blue-700'},
+                {val: 'VIP', label: 'VIP', color: 'text-yellow-600'}
+            ];
+            
+            let typeOptions = `
+                <div class="flex items-center justify-between mb-1">
+                     <span class="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Setting</span>
+                     <button onclick="toggleEditRenewal(${index})" class="text-xs p-1 rounded hover:bg-gray-100 ${isEditing ? 'text-blue-600 bg-blue-50' : 'text-gray-400'}" title="${isEditing ? 'ล็อคข้อมูล' : 'แก้ไขข้อมูล'}" ${isDisabled ? 'disabled hidden' : ''}>
+                        <i class="fa-solid ${isEditing ? 'fa-lock-open' : 'fa-pen'}"></i>
+                     </button>
+                </div>
+                <div class="flex flex-col gap-1 items-start ${opacityClass}">
+            `;
+            
+            types.forEach(t => {
+                 const isChecked = state.targetType === t.val ? 'checked' : '';
+                 typeOptions += `
+                    <label class="inline-flex items-center cursor-pointer ${settingsDisabled ? 'cursor-not-allowed' : ''}">
+                        <input type="radio" name="renew_type_${index}" value="${t.val}" class="form-radio h-3 w-3 ${t.color}" ${isChecked} onchange="updateRenewalType(${index}, '${t.val}')" ${settingsDisabledAttr}>
+                        <span class="ml-1 text-[10px] ${t.color} font-bold">${t.label}</span>
+                    </label>
+                 `;
+            });
+            typeOptions += `</div>`;
+
+            // --- Days Column ---
+            let daysOptions = `<div class="flex justify-center gap-2 ${opacityClass}">`;
+            const dayCheckboxes = [
+                { val: 3, label: "พ.", color: "text-green-600" },
+                { val: 6, label: "ส.", color: "text-purple-600" },
+                { val: 0, label: "อา.", color: "text-red-600" }
+            ];
+            
+            dayCheckboxes.forEach(d => {
+                const isChecked = state.days.includes(d.val) ? 'checked' : '';
+                daysOptions += `
+                    <label class="inline-flex items-center cursor-pointer ${settingsDisabled ? 'cursor-not-allowed' : ''} flex-col">
+                        <span class="text-[10px] font-bold text-gray-500 mb-0.5">${d.label}</span>
+                        <input type="checkbox" class="form-checkbox h-4 w-4 ${d.color} rounded border-gray-300 focus:ring-${d.color}" onchange="toggleRenewalDay(${index}, ${d.val}, this.checked)" ${isChecked} ${settingsDisabledAttr}>
+                    </label>
+                `;
+            });
+            daysOptions += `</div>`;
+
+            html += `
+                <tr class="${trClass} border-b border-gray-50">
+                    <td class="px-3 py-3 text-center align-middle">
+                        <input type="checkbox" class="renewal-check form-checkbox h-4 w-4 text-blue-600 rounded" data-index="${index}" onchange="updateRenewalCheck(${index}, this.checked)" ${checkAttr} ${disabledAttr}>
+                    </td>
+                    <td class="px-3 py-3 align-top">
+                        <div class="font-bold text-gray-800 text-sm leading-tight">${item.bookerName}</div>
+                        <div class="text-xs text-gray-500 mt-0.5">(${item.product})</div>
+                    </td>
+                    <td class="px-3 py-3 align-top">
+                        <div class="w-full">
+                            ${dayStallsHtml}
+                        </div>
+                    </td>
+                    <td class="px-3 py-3 align-top">
+                        ${typeOptions}
+                    </td>
+                    <td class="px-3 py-3 align-middle">
+                         ${daysOptions}
+                    </td>
+                    <td class="px-3 py-3 text-center align-middle">
+                        ${statusBadge}
+                    </td>
+                </tr>
+            `;
+        });
+
+        html += `</tbody></table>`;
+        container.innerHTML = html;
+        
+        if (!document.getElementById('renewalStallSearchDropdown')) {
+            const dd = document.createElement('div');
+            dd.id = 'renewalStallSearchDropdown';
+            dd.className = 'hidden fixed bg-white border border-gray-300 rounded shadow-xl z-[80] w-40 max-h-48 overflow-y-auto text-xs';
+            document.body.appendChild(dd);
+            
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('#renewalStallSearchDropdown') && !e.target.closest('button[onclick^="openRenewalStallSearch"]')) {
+                    dd.classList.add('hidden');
+                }
+            });
+        }
+        updateRenewalStats();
+    }
+
+    // --- STATE & UTILS ---
+
+    function toggleEditRenewal(index) {
+        renewalState[index].isEditing = !renewalState[index].isEditing;
+        renderRenewalTable();
+    }
+
+    function updateRenewalCheck(index, isChecked) {
+        renewalState[index].checked = isChecked;
+        updateRenewalStats();
+    }
+
+    function updateRenewalType(index, newType) {
+        renewalState[index].targetType = newType;
+        updateRenewalStats();
+    }
+
+    function toggleRenewalDay(index, day, isChecked) {
+        const days = renewalState[index].days;
+        if (isChecked) {
+            if (!days.includes(day)) days.push(day);
+            if (!renewalState[index].dayStalls[day]) {
+                renewalState[index].dayStalls[day] = [];
+            }
+        } else {
+            const idx = days.indexOf(day);
+            if (idx > -1) days.splice(idx, 1);
+        }
+        renderRenewalTable(); 
+    }
+
+    function removeRenewalStall(index, day, stallName) {
+        const arr = renewalState[index].dayStalls[day];
+        const i = arr.indexOf(stallName);
+        if (i > -1) arr.splice(i, 1);
+        
+        if (arr.length === 0) {
+            const dayIdx = renewalState[index].days.indexOf(day);
+            if (dayIdx > -1) {
+                renewalState[index].days.splice(dayIdx, 1);
+            }
+        }
+        
+        renderRenewalTable();
+    }
+
+    // --- HELPER: Array Compare ---
+    function arraysEqual(a, b) {
+        if (a === b) return true;
+        if (a == null || b == null) return false;
+        if (a.length !== b.length) return false;
+        const aSorted = [...a].sort();
+        const bSorted = [...b].sort();
+        for (let i = 0; i < aSorted.length; ++i) {
+            if (aSorted[i] !== bSorted[i]) return false;
+        }
+        return true;
+    }
+
+    // FIX 3: Update Footer Stats
+    function updateRenewalStats() {
+        const selectedCount = renewalState.filter(s => s.checked).length;
+        const readyCount = renewalCandidates.filter(item => item.status !== 'conflict' && item.status !== 'renewed').length;
+        
+        let changedCount = 0;
+        renewalState.forEach((state, idx) => {
+             const original = renewalCandidates[idx];
+             if (state.checked) {
+                 const isTypeChanged = state.targetType !== original.customerType;
+                 const isDaysChanged = !arraysEqual(state.days, original.defaultDays);
+                 if (isTypeChanged || isDaysChanged) {
+                     changedCount++;
+                 }
+             }
+        });
+
+        const footerDiv = document.querySelector('#renewalModal .modal-container > div:last-child');
+        if (footerDiv) {
+             const leftDiv = footerDiv.querySelector('div:first-child');
+             if (leftDiv) {
+                 leftDiv.innerHTML = `
+                    <div class="flex gap-4 text-xs font-bold text-gray-600">
+                        <span>เลือก : <span class="text-blue-600">${selectedCount}</span> รายการ</span>
+                        <span class="text-gray-300">|</span>
+                        <span>พร้อม : <span class="text-green-600">${readyCount}</span> รายการ</span>
+                        <span class="text-gray-300">|</span>
+                        <span>เปลี่ยนแปลง : <span class="text-orange-500">${changedCount}</span> รายการ</span>
+                    </div>
+                 `;
+             }
+             
+             const btn = document.getElementById('btnConfirmRenew');
+             if (btn) {
+                 btn.innerText = "ยืนยันการต่อล็อค"; 
+                 if (selectedCount === 0) {
+                     btn.disabled = true;
+                     btn.classList.add('opacity-50', 'cursor-not-allowed');
+                 } else {
+                     btn.disabled = false;
+                     btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                 }
+             }
+        }
+    }
+
+    // --- STALL ADDITION LOGIC ---
+    let activeSearchContext = null; 
+
+    function openRenewalStallSearch(event, index, day) {
+        event.stopPropagation();
+        activeSearchContext = { index, day };
+        
+        const dd = document.getElementById('renewalStallSearchDropdown');
+        dd.innerHTML = '';
+        
+        // FIX 1: Smart Positioning for Dropdown
+        const rect = event.target.getBoundingClientRect();
+        const dropdownHeight = 220; // Approx max height
+        const spaceBelow = window.innerHeight - rect.bottom;
+        
+        dd.style.position = 'fixed';
+        dd.style.left = rect.left + 'px';
+        dd.style.width = '180px'; 
+        
+        if (spaceBelow < dropdownHeight) {
+            // Not enough space below, show ABOVE
+            dd.style.top = 'auto';
+            dd.style.bottom = (window.innerHeight - rect.top) + 'px';
+        } else {
+            // Show BELOW
+            dd.style.top = (rect.bottom) + 'px';
+            dd.style.bottom = 'auto';
+        }
+        
+        dd.classList.remove('hidden');
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = 'ค้นหา...';
+        input.className = 'w-full p-2 border-b outline-none';
+        input.onkeyup = (e) => filterRenewalStalls(e.target.value);
+        dd.appendChild(input);
+
+        const list = document.createElement('div');
+        list.id = 'renewalStallListInner';
+        dd.appendChild(list);
+
+        populateRenewalStallList('');
+        input.focus();
+    }
+
+    function populateRenewalStallList(keyword) {
+        const list = document.getElementById('renewalStallListInner');
+        list.innerHTML = '';
+        const k = keyword.toLowerCase();
+        
+        const matches = stallsData.filter(s => s.name.toLowerCase().includes(k) && s.type !== 'ทางเดิน' && s.type !== 'อื่นๆ').slice(0, 50); 
+        
+        if (matches.length === 0) {
+            list.innerHTML = '<div class="p-2 text-gray-400">ไม่พบข้อมูล</div>';
+            return;
+        }
+
+        matches.forEach(s => {
+            const div = document.createElement('div');
+            div.className = 'p-2 hover:bg-blue-50 cursor-pointer border-b last:border-0';
+            div.innerText = s.name;
+            div.onclick = () => {
+                addRenewalStall(activeSearchContext.index, activeSearchContext.day, s.name);
+                document.getElementById('renewalStallSearchDropdown').classList.add('hidden');
+            };
+            list.appendChild(div);
+        });
+    }
+
+    function filterRenewalStalls(val) {
+        populateRenewalStallList(val);
+    }
+
+    function addRenewalStall(index, day, stallName) {
+        const arr = renewalState[index].dayStalls[day];
+        if (!arr.includes(stallName)) {
+            arr.push(stallName);
+            arr.sort((a,b) => a.localeCompare(b, undefined, {numeric: true, sensitivity: 'base'}));
+            if (!renewalState[index].days.includes(day)) {
+                renewalState[index].days.push(day);
+            }
+            renderRenewalTable();
+        }
+    }
+
+    // --- BATCH ACTIONS ---
+    function toggleAllRenewal(masterCheck) {
+        const isChecked = masterCheck.checked;
+        renewalState.forEach((s, i) => {
+            const item = renewalCandidates[i];
+            if (item.status !== 'conflict' && item.status !== 'renewed') {
+                s.checked = isChecked;
+            }
+        });
+        renderRenewalTable();
+    }
+
+    // FIX: Include storageFee in batch
+    function submitRenewalBatch() {
+        const targetJson = document.getElementById('renewalTargetMonth').value;
+        const targetObj = JSON.parse(targetJson); 
+        
+        const listToRenew = [];
+        
+        renewalState.forEach((state, index) => {
+            if (!state.checked) return;
+            const item = renewalCandidates[index];
+            
+            const stallMap = {}; 
+            state.days.forEach(d => {
+                state.dayStalls[d].forEach(s => {
+                    if(!stallMap[s]) stallMap[s] = new Set();
+                    stallMap[s].add(d);
+                });
+            });
+
+            const detailedStalls = [];
+            for (const [name, daysSet] of Object.entries(stallMap)) {
+                detailedStalls.push({
+                    name: name,
+                    price: 0, 
+                    days: Array.from(daysSet).sort((a,b)=>a-b)
+                });
+            }
+            
+            const allStalls = new Set();
+            state.days.forEach(d => {
+                state.dayStalls[d].forEach(s => allStalls.add(s));
+            });
+            const stallsStr = Array.from(allStalls).join(", ");
+
+            if (state.days.length > 0 && allStalls.size > 0) {
+                listToRenew.push({
+                    bookerName: item.bookerName,
+                    product: item.product,
+                    phone: item.phone,
+                    stalls: stallsStr, 
+                    selectedDays: state.days,
+                    stallDetailsObj: detailedStalls,
+                    targetType: state.targetType,
+                    elecUnit: item.elecUnit,
+                    storageFee: item.storageFee // Pass storage fee
+                });
+            }
+        });
+
+        if (listToRenew.length === 0) {
+            showAlert("กรุณาเลือกรายการและระบุข้อมูลให้ครบถ้วน", "แจ้งเตือน", true);
+            return;
+        }
+
+        showConfirm(`ยืนยันการต่ออายุสัญญาจำนวน ${listToRenew.length} รายการ\nไปยังเดือน ${targetObj.label} ?`, "ยืนยันการต่ออายุ", () => {
+            showLoader();
+            google.script.run
+                .withSuccessHandler((res) => {
+                    hideLoader();
+                    if (res.success) {
+                        closeRenewalModal();
+                        showAlert(res.message, "สำเร็จ", false);
+                        const monthlyModal = document.getElementById('monthlyManagementModal');
+                        if (monthlyModal && !monthlyModal.classList.contains('opacity-0')) {
+                            if (typeof fetchMonthlyBookings === 'function') fetchMonthlyBookings();
+                        }
+                    } else {
+                        showAlert(res.message, "ข้อผิดพลาด", true);
+                    }
+                })
+                .withFailureHandler((err) => {
+                    hideLoader();
+                    showAlert("Error: " + err, "ข้อผิดพลาด", true);
+                })
+                .processRenewalBatch(listToRenew, {
+                    year: targetObj.year,
+                    month: targetObj.month,
+                    monthName: targetObj.label
+                });
+        });
+    }
+</script>

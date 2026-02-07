@@ -1,0 +1,111 @@
+<script>
+    /**
+     * Scripts_Expense
+     * Logic for Expense Modal
+     * Update: Added Loading State & Double Submit Prevention
+     * Update: Fixed Modal closing logic (use hideModal) & Refresh correct function
+     */
+
+    function openExpenseModal() {
+        document.getElementById('expenseForm').reset();
+        document.getElementById('exp_date').value = new Date().toISOString().split('T')[0];
+        document.getElementById('exp_method_cash').checked = true; // Default
+        
+        // Reset button state
+        const btn = document.querySelector('#expenseForm button[type="submit"]');
+        if(btn) {
+            btn.disabled = false;
+            btn.innerHTML = 'บันทึกรายจ่าย';
+        }
+
+        // Use shared showModal if available, else manual fallback
+        if (typeof showModal === 'function') {
+            showModal('expenseModal');
+        } else {
+            document.getElementById('expenseModal').classList.remove('hidden');
+        }
+    }
+
+    function submitExpense(event) {
+        event.preventDefault();
+        
+        const fileInput = document.getElementById('exp_receipt');
+        if (fileInput.files.length > 0 && fileInput.files[0].size > 2 * 1024 * 1024) {
+            showAlert("ขนาดไฟล์รูปภาพต้องไม่เกิน 2MB", "แจ้งเตือน", true);
+            return;
+        }
+
+        // [MODIFIED] Lock Button & Show Loading Text
+        const btn = document.querySelector('#expenseForm button[type="submit"]');
+        if(btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i> กำลังบันทึก...';
+        }
+
+        const officer = currentAdmin ? currentAdmin.name : "System";
+        
+        const data = {
+            date: document.getElementById('exp_date').value,
+            category: document.getElementById('exp_category').value,
+            item: document.getElementById('exp_item').value,
+            amount: document.getElementById('exp_amount').value,
+            method: document.querySelector('input[name="exp_method"]:checked').value,
+            officer: officer
+        };
+        
+        const processSubmit = (finalData) => {
+            showLoader();
+            google.script.run.withSuccessHandler((res) => {
+                hideLoader();
+                
+                // [MODIFIED] Reset Button State
+                if(btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = 'บันทึกรายจ่าย';
+                }
+
+                if(res.success) {
+                    // FIX: Use hideModal to properly clean up styles and body scroll
+                    if (typeof hideModal === 'function') {
+                        hideModal('expenseModal');
+                    } else {
+                        document.getElementById('expenseModal').classList.add('hidden');
+                    }
+
+                    showAlert("บันทึกรายจ่ายสำเร็จ", "Success", false);
+                    
+                    // FIX: Call the correct refresh function for Accounting Tab
+                    if(typeof fetchAccountingOnly === 'function') {
+                        fetchAccountingOnly();
+                    } else if(typeof fetchAccountingData === 'function') {
+                        fetchAccountingData();
+                    }
+                } else {
+                    showAlert(res.message, "Error", true);
+                }
+            }).withFailureHandler((err) => {
+                hideLoader();
+                
+                // [MODIFIED] Reset Button State on Error
+                if(btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = 'บันทึกรายจ่าย';
+                }
+
+                showAlert("Error: " + err, "Error", true);
+            }).addSystemExpense(finalData);
+        };
+
+        if (fileInput.files.length > 0) {
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                data.receiptFile = evt.target.result;
+                data.receiptType = fileInput.files[0].type;
+                processSubmit(data);
+            };
+            reader.readAsDataURL(fileInput.files[0]);
+        } else {
+            processSubmit(data);
+        }
+    }
+</script>

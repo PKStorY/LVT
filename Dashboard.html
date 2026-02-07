@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - ตลาดนัดลาดสวายวินเทจ</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/17.0.2/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/17.0.2/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/1.8.5/Recharts.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Mali:wght@300;400;500;600;700&family=Sarabun:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        body { font-family: 'Sarabun', sans-serif; background-color: #FDF5E6; background-image: url('https://www.transparenttextures.com/patterns/cream-paper.png'); color: #4A3B32; }
+        .font-hand { font-family: 'Mali', cursive; }
+        .vintage-card { background: #FFFAF0; border: 2px solid #8B5A2B; border-radius: 8px; box-shadow: 4px 4px 0px rgba(139, 90, 43, 0.2); transition: transform 0.2s; }
+        .vintage-card:hover { transform: translateY(-2px); }
+        .vintage-header { background-color: #DEB887; border-bottom: 2px solid #8B5A2B; padding: 8px 12px; font-family: 'Mali', cursive; font-weight: bold; color: #3E2723; }
+        .paper-tape { position: absolute; top: -10px; left: 50%; transform: translateX(-50%) rotate(-2deg); width: 80px; height: 25px; background-color: #E0C097; opacity: 0.8; z-index: 10; }
+        .tab-btn { font-family: 'Mali', cursive; padding: 0.5rem 1rem; border-radius: 8px 8px 0 0; border: 2px solid transparent; font-weight: bold; transition: all 0.2s; }
+        .tab-active { background-color: #FDF5E6; border-color: #8B5A2B; border-bottom-color: #FDF5E6; color: #8B5A2B; margin-bottom: -2px; z-index: 10; }
+        .tab-inactive { background-color: #D2B48C; color: #FFF; opacity: 0.8; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #F5DEB3; }
+        ::-webkit-scrollbar-thumb { background: #8B5A2B; border-radius: 4px; }
+        .animate-enter { animation: enter 0.3s ease-out forwards; }
+        @keyframes enter { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        /* Modal Transitions */
+        .modal { transition: opacity 0.2s ease-out; } 
+        body.modal-active { overflow-x: hidden; overflow-y: hidden !important; }
+        .animate-pop-in { animation: pop-in 0.2s ease-out forwards; }
+        @keyframes pop-in { 0% { opacity: 0; transform: scale(0.95); } 100% { opacity: 1; transform: scale(1); } }
+        
+        /* --- FIX: STRICT PRINT STYLES --- */
+        @media print { 
+            @page { size: A4; margin: 0; }
+            body { 
+                background-color: white !important; 
+                margin: 0 !important; 
+                padding: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+                overflow: visible !important;
+            } 
+            
+            /* Hide EVERYTHING by default */
+            .no-print, #root, .container, header, .modal, #dashLoading { 
+                display: none !important; 
+            }
+            
+            /* Show ONLY Report Area */
+            #report-print-area { 
+                display: block !important; 
+                position: absolute !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 100% !important;
+                height: auto !important;
+                z-index: 99999 !important;
+                background: white !important; /* Force white bg for paper */
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow: visible !important;
+            }
+            
+            /* Ensure inner content is visible */
+            #report-print-area * {
+                visibility: visible !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+
+            /* Hide the control bar inside print area */
+            #report-print-area .no-print { display: none !important; }
+            
+            /* Formatting fixes */
+            #report-print-area table { display: table !important; }
+            #report-print-area tr { display: table-row !important; }
+            #report-print-area td, #report-print-area th { display: table-cell !important; }
+            #report-print-area .flex { display: flex !important; }
+        }
+    </style>
+</head>
+<body class="text-gray-800">
+    <div id="root"></div>
+    <!-- Loading -->
+    <div id="dashLoading" class="fixed inset-0 bg-[#FDF5E6]/90 z-50 flex flex-col items-center justify-center">
+        <i class="fa-solid fa-compass fa-spin text-5xl text-[#8B5A2B] mb-4"></i>
+        <p class="text-[#8B5A2B] font-hand text-xl font-bold animate-pulse">กำลังกางแผนที่...</p>
+    </div>
+
+    <!-- Error Screen -->
+    <div id="error-screen" class="hidden p-10 text-center text-red-500">
+        <h2 class="text-xl font-bold">เกิดข้อผิดพลาด</h2>
+        <p id="error-message" class="text-sm mt-2"></p>
+    </div>
+
+    <div class="min-h-screen pb-10">
+        <!-- Top Bar -->
+        <div class="bg-[#FFF8DC] border-b-2 border-[#8B5A2B] sticky top-0 z-40 shadow-md no-print">
+            <div class="container mx-auto px-4 py-3 flex flex-col md:flex-row justify-between items-center gap-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-12 h-12 bg-white rounded-full border-2 border-[#8B5A2B] flex items-center justify-center shadow-sm">
+                         <img src="https://img2.pic.in.th/pic/Profile-Alpha_0.png" class="h-8 w-auto">
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-hand font-bold text-[#5D4037] leading-none">Ladsawai Vintage</h1>
+                        <p class="text-xs text-[#8D6E63] font-bold mt-0.5">Executive Dashboard</p>
+                    </div>
+                </div>
+                
+                <div class="flex gap-1">
+                    <button id="tab-daily" onclick="switchTab('daily')" class="tab-btn tab-active"><i class="fa-solid fa-chart-line mr-1"></i> ภาพรวม</button>
+                    <button id="tab-accounting" onclick="switchTab('accounting')" class="tab-btn tab-inactive"><i class="fa-solid fa-calculator mr-1"></i> บัญชี</button>
+                </div>
+
+                <div class="flex items-center gap-3">
+                     <div id="date_filter_wrapper" class="bg-white border-2 border-[#8B5A2B] rounded-lg p-1 flex items-center shadow-sm">
+                         <span class="bg-[#8B5A2B] text-white px-2 py-1 rounded text-xs font-bold mr-2">วันที่</span>
+                         <input type="date" id="dash_date_filter" class="bg-transparent border-none text-sm font-bold text-[#5D4037] focus:ring-0 outline-none" onchange="fetchDashboardData()">
+                     </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="container mx-auto px-4 py-6">
+            
+            <!-- TAB 1: ANALYTICS -->
+            <div id="content-daily">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                    <div class="vintage-card p-4"><div class="paper-tape"></div><p class="text-xs font-bold text-[#8D6E63] uppercase">รายรับรวม</p><div class="flex justify-between items-end mt-1"><h3 id="stat_revenue" class="text-2xl font-hand font-extrabold text-[#5D4037]">0</h3><div id="trend_revenue" class="text-xs font-bold px-2 py-1 rounded bg-gray-200">-</div></div></div>
+                    <div class="vintage-card p-4"><div class="paper-tape"></div><p class="text-xs font-bold text-[#8D6E63] uppercase">ยอดจองล็อค</p><div class="flex justify-between items-end mt-1"><h3 id="stat_occupancy" class="text-2xl font-hand font-extrabold text-[#5D4037]">0 / 0</h3><div id="trend_occupancy" class="text-xs font-bold px-2 py-1 rounded bg-gray-200">-</div></div><div class="w-full bg-[#EFEBE9] rounded-full h-2 mt-2 border border-[#D7CCC8]"><div id="bar_occupancy" class="bg-[#8B5A2B] h-full rounded-full" style="width: 0%"></div></div></div>
+                    <div class="vintage-card p-4 bg-[#FFF3E0]"><div class="paper-tape"></div><p class="text-xs font-bold text-[#E65100] uppercase">กำไรสุทธิ</p><div class="flex justify-between items-end mt-1"><h3 id="stat_profit" class="text-2xl font-hand font-extrabold text-[#E65100]">0</h3><i class="fa-solid fa-coins text-[#FFB74D] text-2xl"></i></div></div>
+                    <div class="vintage-card p-4 bg-[#E8F5E9]"><div class="paper-tape"></div><p class="text-xs font-bold text-[#1B5E20] uppercase">พยากรณ์สิ้นเดือน</p><div class="flex justify-between items-end mt-1"><h3 id="stat_forecast" class="text-2xl font-hand font-extrabold text-[#2E7D32]">0</h3><i class="fa-solid fa-chart-line text-[#81C784] text-2xl"></i></div></div>
+                </div>
+                <div class="vintage-card mb-6"><div class="vintage-header"><i class="fa-solid fa-lightbulb text-yellow-600"></i> ข้อค้นพบสำคัญ</div><div id="ai_insights_box" class="p-4 space-y-2 text-sm text-[#5D4037]"></div></div>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="lg:col-span-2 space-y-6">
+                         <div class="vintage-card p-4 min-h-[300px]"><div class="vintage-header mb-4"><i class="fa-solid fa-layer-group"></i> สัดส่วนการจองแยกโซน</div><div class="space-y-4" id="zone_bars_container"></div></div>
+                         <div class="vintage-card"><div class="vintage-header"><i class="fa-solid fa-crown text-yellow-600"></i> ลูกค้าชั้นดี</div><table class="w-full text-sm text-left"><thead class="bg-[#F5DEB3] text-[#5D4037] text-xs uppercase font-bold border-b-2 border-[#8B5A2B]"><tr><th class="p-3 w-10">#</th><th class="p-3">ลูกค้า</th><th class="p-3 text-right">ยอดจ่าย</th></tr></thead><tbody id="table_prime_customers" class="divide-y divide-[#D7CCC8]"></tbody></table></div>
+                    </div>
+                    <div class="vintage-card border-red-800/50"><div class="vintage-header bg-red-100 text-red-900"><i class="fa-solid fa-triangle-exclamation"></i> ติดตามหนี้เร่งด่วน</div><div class="p-3 bg-red-50/50 min-h-[400px]"><div id="risk_list_container" class="space-y-2"></div></div></div>
+                </div>
+            </div>
+
+            <!-- TAB 2: ACCOUNTING -->
+            <div id="content-accounting" class="hidden">
+                 <div class="vintage-card p-4 mb-6 flex flex-col md:flex-row justify-between items-center bg-[#4A3B32] text-[#FDF5E6] border-none gap-4">
+                     <div class="flex items-center gap-4 w-full md:w-auto">
+                         <div><h3 class="font-bold text-lg font-hand">จัดการบัญชี</h3><p class="text-xs text-gray-300">บันทึกรายรับ-รายจ่ายเพิ่มเติม</p></div>
+                         <div class="flex items-center gap-2 bg-[#5D4037] p-1.5 rounded-lg border border-[#8B5A2B] shadow-inner"><span class="text-xs font-bold text-[#FDF5E6] opacity-90"><i class="fa-solid fa-filter mr-1"></i>ประจำวันที่:</span><input type="date" id="acc_date_filter" class="bg-transparent border-none text-sm font-bold text-[#FDF5E6] focus:ring-0 outline-none w-32 cursor-pointer" onchange="fetchAccountingOnly()"></div>
+                     </div>
+                     <div class="flex gap-2">
+                         <button onclick="setModal({type:'income'})" class="px-4 py-2 bg-[#2E7D32] rounded border border-[#1B5E20] text-xs font-bold hover:bg-[#388E3C] transition shadow-md font-hand"><i class="fa-solid fa-plus"></i> รายรับ</button>
+                         <button onclick="setModal({type:'expense'})" class="px-4 py-2 bg-[#C62828] rounded border border-[#B71C1C] text-xs font-bold hover:bg-[#D32F2F] transition shadow-md font-hand"><i class="fa-solid fa-minus"></i> รายจ่าย</button>
+                     </div>
+                 </div>
+                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                     <div class="vintage-card h-96 flex flex-col relative overflow-hidden">
+                         <div class="p-3 bg-[#DEB887] border-b-2 border-[#8B5A2B] sticky top-0 z-10 shadow-sm"><div class="flex justify-between items-center"><h4 class="font-bold text-[#5D4037] font-hand text-sm">รายละเอียดรายรับ</h4><div id="header_inc_summary" class="text-[10px] font-bold text-[#3E2723] bg-white/40 px-2 py-0.5 rounded">สด: 0 | โอน: 0</div></div><div class="flex justify-between text-[10px] font-bold text-[#5D4037] mt-1 opacity-70 px-1"><span>รายการ</span><span>จำนวนเงิน</span></div></div>
+                         <div class="overflow-y-auto flex-1 custom-scrollbar p-0"><table class="w-full text-sm"><tbody id="tbl_incomes"></tbody></table></div>
+                     </div>
+                     <div class="vintage-card h-96 flex flex-col relative overflow-hidden">
+                         <div class="p-3 bg-[#DEB887] border-b-2 border-[#8B5A2B] sticky top-0 z-10 shadow-sm"><div class="flex justify-between items-center"><h4 class="font-bold text-[#5D4037] font-hand text-sm">รายละเอียดรายจ่าย</h4><div id="header_exp_summary" class="text-[10px] font-bold text-[#3E2723] bg-white/40 px-2 py-0.5 rounded">สด: 0 | โอน: 0</div></div><div class="flex justify-between text-[10px] font-bold text-[#5D4037] mt-1 opacity-70 px-1"><span>รายการ</span><span>จำนวนเงิน</span></div></div>
+                         <div class="overflow-y-auto flex-1 custom-scrollbar p-0"><table class="w-full text-sm"><tbody id="tbl_expenses"></tbody></table></div>
+                     </div>
+                 </div>
+                 <div class="vintage-card p-6 mt-6 border-4 border-[#4A3B32]">
+                     <div class="flex justify-between items-center mb-4"><h3 class="text-xl font-bold text-[#4A3B32] font-hand"><i class="fa-solid fa-file-signature"></i> ปิดยอดประจำวัน</h3><button onclick="previewDailyReport()" class="px-3 py-1.5 bg-[#D2B48C] text-[#5D4037] rounded font-bold text-xs hover:bg-[#C19A6B] shadow-sm border border-[#8B5A2B] transition"><i class="fa-solid fa-print"></i> Preview Report</button></div>
+                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                         <div class="bg-[#FFF8DC] p-4 border-2 border-dashed border-[#8B5A2B] rounded"><p class="text-xs text-[#8D6E63] font-bold">เงินสดในระบบ (System)</p><h2 id="rpt_sum_net_cash" class="text-2xl font-bold text-[#4A3B32]">0.00</h2></div>
+                         <div class="bg-[#FFF8DC] p-4 border-2 border-dashed border-[#4A3B32] rounded"><p class="text-xs text-[#4A3B32] font-bold">นับเงินจริง (Actual)</p><input type="text" id="closing_actual_cash" class="w-full bg-transparent text-2xl font-bold text-right text-[#1565C0] outline-none border-b-2 border-[#1565C0] focus:border-[#0D47A1]" placeholder="0.00" onkeyup="calcDiff()"></div>
+                     </div>
+                     <div class="mt-4 flex justify-between items-center bg-[#F9F7EF] p-3 rounded border border-[#D7CCC8]"><span class="font-bold text-[#5D4037]">ผลต่าง (Diff):</span><span id="closing_diff" class="font-bold text-xl">0.00</span></div>
+                     <div class="mt-4"><textarea id="closing_note" class="w-full p-2 border-2 border-[#D7CCC8] rounded bg-[#FFF8DC] text-sm focus:border-[#8B5A2B] outline-none text-[#5D4037]" rows="2" placeholder="หมายเหตุ..."></textarea></div>
+                     <input type="hidden" id="closing_system_cash"><div id="rpt_sum_total" class="hidden"></div>
+                     <button onclick="submitClosing()" class="w-full mt-4 py-3 bg-[#4A3B32] text-[#FDF5E6] font-bold text-lg rounded shadow-lg hover:bg-[#3E2723] transition transform active:scale-95 font-hand border-b-4 border-[#271E19]">ยืนยันปิดยอด</button>
+                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Include Scripts -->
+    <?!= include('Part_Modal_Utils'); ?>
+    <?!= include('Part_Modal_Income'); ?>
+    <?!= include('Part_Modal_Expense'); ?>
+    <?!= include('Template_Report'); ?>
+    <?!= include('Scripts_Print_Report'); ?>
+    <?!= include('Scripts_Dashboard_UI'); ?>
+    <?!= include('Scripts_Dashboard'); ?>
+    <?!= include('Scripts_Accounting'); ?>
+    <?!= include('Scripts_OtherIncome'); ?>
+    <?!= include('Scripts_Expense'); ?>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('dash_date_filter').value = today;
+            if(document.getElementById('acc_date_filter')) {
+                document.getElementById('acc_date_filter').value = today;
+            }
+            if (window.opener && window.opener.currentAdmin) {
+                currentAdmin = window.opener.currentAdmin;
+                document.getElementById('dash_admin_name').innerText = currentAdmin.name;
+            } else {
+                const session = localStorage.getItem('market_admin_session');
+                if(session) currentAdmin = JSON.parse(session);
+            }
+            fetchDashboardData();
+        });
+        
+        function switchTab(tab) {
+            const tDaily = document.getElementById('tab-daily');
+            const tAcc = document.getElementById('tab-accounting');
+            const cDaily = document.getElementById('content-daily');
+            const cAcc = document.getElementById('content-accounting');
+            const dateWrapper = document.getElementById('date_filter_wrapper');
+
+            if(tab === 'daily') {
+                tDaily.className = "tab-btn tab-active"; tAcc.className = "tab-btn tab-inactive";
+                cDaily.classList.remove('hidden'); cAcc.classList.add('hidden');
+                if(dateWrapper) dateWrapper.style.visibility = 'visible';
+            } else {
+                tDaily.className = "tab-btn tab-inactive"; tAcc.className = "tab-btn tab-active";
+                cDaily.classList.add('hidden'); cAcc.classList.remove('hidden');
+                if(dateWrapper) dateWrapper.style.visibility = 'hidden';
+                fetchAccountingOnly();
+            }
+        }
+        function setModal(config) {
+            if(config.type === 'income') showModal('incomeModal');
+            if(config.type === 'expense') showModal('expenseModal');
+        }
+    </script>
+</body>
+</html>

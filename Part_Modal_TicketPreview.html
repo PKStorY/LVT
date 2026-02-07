@@ -1,0 +1,21 @@
+<!-- Ticket Preview Modal (Mobile Screenshot Friendly) -->
+<!-- Update: Increased Z-Index to 130 to show above Success Modal (z-120) -->
+<div id="ticketPreviewModal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-[130]">
+    <div class="relative bg-white p-4 rounded-none md:rounded-lg shadow-2xl w-full max-w-[380px] mx-auto animate-bounce-in flex flex-col max-h-[95vh]">
+        <!-- Close Button (Top Right) -->
+        <button onclick="document.getElementById('ticketPreviewModal').classList.add('hidden')" class="absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-2 hover:bg-red-600 shadow-md z-50">
+            <i class="fa-solid fa-times text-lg w-6 h-6 flex items-center justify-center"></i>
+        </button>
+
+        <div class="text-center mb-2 text-gray-400 text-xs uppercase tracking-widest font-bold">Preview for Capture</div>
+        
+        <!-- Ticket Content Area -->
+        <div id="previewContentArea" class="bg-white p-2 border border-gray-100 shadow-inner overflow-y-auto flex-1 flex justify-center">
+            <!-- Ticket HTML injected here -->
+        </div>
+
+        <div class="mt-4 flex gap-2">
+            <button onclick="document.getElementById('ticketPreviewModal').classList.add('hidden')" class="flex-1 py-2 bg-gray-200 text-gray-700 rounded-lg font-bold text-sm">ปิด</button>
+        </div>
+    </div>
+</div>

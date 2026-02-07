@@ -1,0 +1,81 @@
+<script>
+    /**
+     * Scripts_AddUtility
+     * จัดการเพิ่มค่าไฟ
+     * Update: Fix ID reference (d_bookingId)
+     * Update: Adjusted showBookingSuccess call for new signature
+     */
+    function openUtilityModal() {
+        // FIX: Check Daily ID first
+        const bookingId = document.getElementById('d_bookingId').value;
+        if(!bookingId) return;
+        
+        document.getElementById('util_bookingId').value = bookingId;
+        document.getElementById('util_unit').value = "";
+        document.getElementById('util_price_display').innerText = "0";
+        
+        document.getElementById('utilityModal').classList.remove('hidden');
+        setTimeout(() => document.getElementById('util_unit').focus(), 100);
+    }
+
+    function calcUtilPrice() {
+        const unit = parseFloat(document.getElementById('util_unit').value || 0);
+        const price = unit * 10; 
+        document.getElementById('util_price_display').innerText = price.toLocaleString();
+    }
+
+    function submitUtility(e) {
+        e.preventDefault();
+        const bookingId = document.getElementById('util_bookingId').value;
+        const unit = parseFloat(document.getElementById('util_unit').value || 0);
+        const price = parseFloat(document.getElementById('util_price_display').innerText.replace(/,/g, ''));
+        const method = document.querySelector('input[name="util_method"]:checked').value;
+        
+        if (price <= 0) return;
+
+        const officer = currentAdmin ? currentAdmin.name : "System";
+
+        showLoader();
+        google.script.run
+            .withSuccessHandler((res) => {
+                hideLoader();
+                if(res.success) {
+                    document.getElementById('utilityModal').classList.add('hidden');
+                    
+                    // --- SYNC UI (Daily) ---
+                    const oldUnit = parseFloat(document.getElementById('d_elecUnit').value || 0);
+                    const oldTotalText = document.getElementById('d_totalPrice').innerText.replace(/,/g, '');
+                    const oldTotal = parseFloat(oldTotalText || 0);
+                    
+                    const newUnit = oldUnit + unit;
+                    const newTotal = oldTotal + price;
+                    
+                    document.getElementById('d_elecUnit').value = newUnit;
+                    document.getElementById('d_totalPrice').innerText = newTotal.toLocaleString(undefined, {minimumFractionDigits: 2});
+                    
+                    hideModal('bookingModalDaily');
+                    
+                    showBookingSuccess(
+                        "บันทึกค่าไฟเรียบร้อย",
+                        true, 
+                        () => { // On Print
+                            if(typeof printTicket === 'function') printTicket(); 
+                            hideModal('bookingSuccessModal');
+                            setTimeout(() => fetchData(true), 500); 
+                        },
+                        null, // On Preview (No preview for utility update shortcut)
+                        () => fetchData(true) // On Close
+                    );
+                    
+                    fetchData(true); 
+                } else {
+                    showAlert(res.message, "ข้อผิดพลาด", true);
+                }
+            })
+            .withFailureHandler(err => {
+                hideLoader();
+                showAlert("Error: " + err, "ข้อผิดพลาด", true);
+            })
+            .addElectricity(bookingId, unit, price, method, `เพิ่มไฟ ${unit} หน่วย`, officer);
+    }
+</script>

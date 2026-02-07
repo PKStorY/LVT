@@ -1,0 +1,57 @@
+<script>
+    /**
+     * Scripts_Booking_Stalls_Shared
+     * ฟังก์ชันกลางสำหรับการจัดการรายชื่อล็อค (Search/Filter)
+     */
+
+    function filterStalls() {
+        const searchInput = document.getElementById('stallSearchInput');
+        if (!searchInput) return;
+        
+        const searchText = searchInput.value.toLowerCase();
+        const items = document.querySelectorAll('.stall-option');
+        
+        items.forEach(function(item) {
+            if (item.dataset.search.includes(searchText)) {
+                item.classList.remove('hidden');
+            } else {
+                item.classList.add('hidden');
+            }
+        });
+    }
+
+    // FIX: Shared Close Function for Dropdown
+    function closeAddStallDropdown() {
+        const dropdown = document.getElementById('addStallDropdown');
+        if (dropdown) {
+            dropdown.classList.add('hidden');
+            dropdown.style.display = 'none'; // Force display none
+        }
+    }
+
+    // Helper to hide dropdown when clicking outside
+    document.addEventListener('click', function(e) {
+        const dropdown = document.getElementById('addStallDropdown');
+        
+        // Buttons that toggle dropdown
+        const btnDaily = document.getElementById('d_btnAddStall');
+        // Select all possible monthly buttons
+        const btnMonthlyButtons = document.querySelectorAll('.btn-add-stall-dynamic, button[onclick^="toggleAddStallDropdownMonthly"]');
+        
+        let isClickInsideButton = false;
+        if (btnDaily && btnDaily.contains(e.target)) isClickInsideButton = true;
+        
+        btnMonthlyButtons.forEach(function(btn) {
+            if (btn.contains(e.target)) isClickInsideButton = true;
+        });
+
+        const inputSearch = document.getElementById('stallSearchInput');
+        if (inputSearch && inputSearch.contains(e.target)) isClickInsideButton = true;
+
+        if (dropdown && !dropdown.classList.contains('hidden')) {
+             if (!dropdown.contains(e.target) && !isClickInsideButton) {
+                 closeAddStallDropdown();
+             }
+        }
+    });
+</script>

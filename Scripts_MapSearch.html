@@ -1,0 +1,164 @@
+<script>
+    /**
+     * Scripts_MapSearch
+     * ระบบค้นหาบนผัง (Search Box Logic)
+     */
+
+    let searchDebounceTimer;
+
+    function handleMapSearchInput(e) {
+        clearTimeout(searchDebounceTimer);
+        const keyword = e.target.value.trim().toLowerCase();
+        const resultContainer = document.getElementById('mapSearchResults');
+        
+        if (!keyword) {
+            resultContainer.classList.add('hidden');
+            resultContainer.innerHTML = '';
+            return;
+        }
+
+        searchDebounceTimer = setTimeout(() => {
+            performMapSearch(keyword);
+        }, 300); // Debounce 300ms
+    }
+
+    function performMapSearch(keyword) {
+        const resultContainer = document.getElementById('mapSearchResults');
+        resultContainer.innerHTML = '';
+        
+        const results = [];
+        const bookingMap = {};
+        
+        // Build Booking Map for faster lookup
+        if (typeof bookingsData !== 'undefined') {
+            bookingsData.forEach(b => bookingMap[b.stallName] = b);
+        }
+
+        // Search in Stalls Data
+        if (typeof stallsData !== 'undefined') {
+            stallsData.forEach(s => {
+                if (s.type === 'ทางเดิน' || s.type === 'อื่นๆ') return;
+                
+                const stallName = s.name;
+                const booking = bookingMap[stallName];
+                
+                let match = false;
+                let desc = "ว่าง";
+                let icon = '<i class="fa-solid fa-store text-green-500"></i>';
+
+                // 1. Match Stall Name
+                if (stallName.toLowerCase().includes(keyword)) {
+                    match = true;
+                }
+
+                // 2. Match Booking Info (Customer, Product)
+                if (booking) {
+                    desc = `${booking.bookerName} (${booking.product})`;
+                    if (booking.bookerName && booking.bookerName.toLowerCase().includes(keyword)) match = true;
+                    if (booking.product && booking.product.toLowerCase().includes(keyword)) match = true;
+                    
+                    if (booking.status === 'ชำระแล้ว') icon = '<i class="fa-solid fa-circle-check text-blue-500"></i>';
+                    else if (booking.status === 'ค้างชำระ') icon = '<i class="fa-solid fa-clock text-orange-500"></i>';
+                    else if (booking.type === 'รายเดือน') icon = '<i class="fa-solid fa-calendar-days text-purple-500"></i>';
+                    else icon = '<i class="fa-solid fa-user text-gray-500"></i>';
+                }
+
+                if (match) {
+                    results.push({
+                        stallName: stallName,
+                        desc: desc,
+                        icon: icon,
+                        status: booking ? booking.status : 'Free'
+                    });
+                }
+            });
+        }
+
+        // Render Results
+        if (results.length > 0) {
+            // Limit to 10 results
+            results.slice(0, 10).forEach(item => {
+                const div = document.createElement('div');
+                div.className = "px-4 py-2 hover:bg-blue-50 cursor-pointer border-b last:border-0 flex items-center gap-3 transition-colors";
+                div.innerHTML = `
+                    <div class="w-6 text-center">${item.icon}</div>
+                    <div class="flex-1">
+                        <div class="font-bold text-gray-800 text-sm">${item.stallName}</div>
+                        <div class="text-xs text-gray-500 truncate">${item.desc}</div>
+                    </div>
+                `;
+                div.onclick = () => selectMapSearchResult(item.stallName);
+                resultContainer.appendChild(div);
+            });
+            resultContainer.classList.remove('hidden');
+        } else {
+            resultContainer.innerHTML = '<div class="px-4 py-3 text-xs text-gray-400 text-center">ไม่พบข้อมูล</div>';
+            resultContainer.classList.remove('hidden');
+        }
+    }
+
+    function selectMapSearchResult(stallName) {
+        const resultContainer = document.getElementById('mapSearchResults');
+        const input = document.getElementById('mapSearchInput');
+        const inputMobile = document.getElementById('mapSearchInputMobile');
+        
+        // Hide Search UI
+        resultContainer.classList.add('hidden');
+        if(input) input.value = "";
+        if(inputMobile) inputMobile.value = "";
+        
+        // Hide Mobile Search Bar if active
+        const mobileBar = document.getElementById('mobileSearchBar');
+        if (mobileBar && !mobileBar.classList.contains('hidden')) {
+            mobileBar.classList.add('hidden');
+        }
+
+        // Find Stall Element on Grid
+        // Selector logic: Assuming cell.dataset.name = stallName
+        const grid = document.getElementById('grid-container');
+        const cells = grid.querySelectorAll('.stall-box');
+        let targetCell = null;
+
+        for (let cell of cells) {
+            if (cell.dataset.name === stallName) {
+                targetCell = cell;
+                break;
+            }
+        }
+
+        if (targetCell) {
+            // 1. Scroll to View
+            targetCell.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+
+            // 2. Add Highlight Effect
+            // Remove from any existing first
+            document.querySelectorAll('.search-highlight').forEach(el => el.classList.remove('search-highlight'));
+            targetCell.classList.add('search-highlight');
+
+            // 3. Auto Click (Trigger System Logic)
+            setTimeout(() => {
+                targetCell.click();
+            }, 300); // Small delay for scroll to finish/start
+
+            // Remove highlight after a few seconds
+            setTimeout(() => {
+                targetCell.classList.remove('search-highlight');
+            }, 3000);
+        } else {
+            showAlert(`ไม่พบตำแหน่งล็อค ${stallName} บนผัง`, "ข้อผิดพลาด", true);
+        }
+    }
+    
+    // Hide dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        const container = document.getElementById('mapSearchResults');
+        const input = document.getElementById('mapSearchInput');
+        const inputMobile = document.getElementById('mapSearchInputMobile');
+        
+        if (container && !container.classList.contains('hidden')) {
+            if (e.target !== input && e.target !== inputMobile && !container.contains(e.target)) {
+                container.classList.add('hidden');
+            }
+        }
+    });
+</script>

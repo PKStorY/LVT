@@ -1,0 +1,14 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "devDependencies": {
+        "@types/google-apps-script": "^2.0.8",
+      },
+    },
+  },
+  "packages": {
+    "@types/google-apps-script": ["@types/google-apps-script@2.0.8", "", {}, "sha512-mGPmzzdgBu1DlwrjOhFQ8u0se6AF/z4OpaTzOGwNKxwXZjE7J+IssfE3oL24j/S/p6aFiSTIptHZvbyqeZD8vA=="],
+  }
+}

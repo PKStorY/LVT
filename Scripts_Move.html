@@ -1,0 +1,339 @@
+<script>
+    /**
+     * Scripts_Move
+     * ควบคุมการทำงานของหน้าต่างย้ายล็อค (Booking Move)
+     * Reverted to Stable Version: Independent Dropdown logic
+     * FIX: Added 'Pay Now / Pay Later' toggle logic for pending payments
+     */
+    
+    let moveContext = {
+        bookingId: null,
+        oldStall: null,
+        oldDate: null,
+        calculatedNewPrice: null,
+        diffAmount: 0 
+    };
+
+    function resetMoveCalculationState() {
+        const btnConf = document.getElementById('btnConfirmMove');
+        const resArea = document.getElementById('mv_resultArea');
+        const payOptions = document.getElementById('mv_paymentOptions');
+        const resultBox = document.getElementById('mv_resultBox');
+        
+        if (btnConf) {
+            btnConf.disabled = true;
+            btnConf.classList.add('opacity-50', 'cursor-not-allowed');
+        }
+        
+        if (resArea) resArea.classList.add('hidden');
+        if (payOptions) payOptions.classList.add('hidden');
+        
+        if (resultBox) resultBox.innerHTML = ''; 
+        
+        moveContext.calculatedNewPrice = null;
+        moveContext.diffAmount = 0;
+
+        // Reset Payment Decision
+        const payNowRadio = document.querySelector('input[name="mv_payDecision"][value="payNow"]');
+        if(payNowRadio) {
+            payNowRadio.checked = true;
+            toggleMovePaymentMethod('payNow');
+        }
+    }
+
+    // FIX: New function to toggle payment method visibility
+    function toggleMovePaymentMethod(val) {
+        const methods = document.getElementById('mv_payMethodsContainer');
+        if (methods) {
+            if (val === 'payNow') {
+                methods.classList.remove('hidden');
+            } else {
+                methods.classList.add('hidden');
+            }
+        }
+    }
+
+    function openMoveBookingModal() {
+        const dailyId = document.getElementById('d_bookingId') ? document.getElementById('d_bookingId').value : null;
+        const dailyDate = document.getElementById('d_date') ? document.getElementById('d_date').value : null;
+        
+        const bookingId = dailyId || document.getElementById('m_bookingId').value;
+        const oldDate = dailyDate || document.getElementById('m_date').value;
+        const oldStall = window.currentClickedStallName;
+
+        if (!bookingId || !oldStall) {
+            showAlert("ไม่พบข้อมูลการจอง (ID หรือ ล็อค)", "ข้อผิดพลาด", true);
+            return;
+        }
+
+        resetMoveCalculationState();
+
+        moveContext = { 
+            bookingId: bookingId, 
+            oldStall: oldStall, 
+            oldDate: oldDate, 
+            calculatedNewPrice: null,
+            diffAmount: 0
+        };
+
+        const dispStall = document.getElementById('mv_oldStall');
+        const dispDate = document.getElementById('mv_oldDate');
+        if(dispStall) dispStall.innerText = oldStall;
+        if(dispDate) dispDate.innerText = formatThaiDateShort(oldDate);
+        
+        const newDateInput = document.getElementById('mv_newDate');
+        if(newDateInput) newDateInput.value = oldDate; 
+        
+        const searchInput = document.getElementById('mv_stallSearch');
+        const hiddenInput = document.getElementById('mv_newStall');
+        const dropdown = document.getElementById('mv_stallDropdownList');
+        
+        if(searchInput) searchInput.value = "";
+        if(hiddenInput) hiddenInput.value = "";
+        if(dropdown) dropdown.innerHTML = '<div class="p-2 text-xs text-gray-400 text-center">กำลังโหลด...</div>';
+        
+        const modal = document.getElementById('moveBookingModal');
+        if(modal) modal.classList.remove('hidden');
+        
+        // Hide parent modal
+        const dailyModal = document.getElementById('bookingModalDaily');
+        if(dailyModal) {
+             dailyModal.style.display = 'none';
+             dailyModal.classList.add('pointer-events-none');
+        }
+        
+        fetchAvailableStallsForMove();
+    }
+
+    function closeMoveModal() {
+        document.getElementById('moveBookingModal').classList.add('hidden');
+        resetMoveCalculationState(); 
+        
+        document.body.classList.remove('modal-active');
+        document.body.style.paddingRight = '';
+        document.body.style.overflowY = 'scroll'; 
+        
+        const dailyModal = document.getElementById('bookingModalDaily');
+        if(dailyModal) {
+            dailyModal.classList.remove('hidden'); 
+            dailyModal.style.display = 'none'; 
+            dailyModal.classList.add('pointer-events-none');
+            dailyModal.classList.add('opacity-0');
+        }
+        
+        const activeModals = document.querySelectorAll('.modal:not(.hidden):not(.opacity-0)');
+        if (activeModals.length === 0) {
+             document.body.classList.remove('modal-active');
+        }
+    }
+    
+    function fetchAvailableStallsForMove() {
+        resetMoveCalculationState();
+        const dateStr = document.getElementById('mv_newDate').value;
+        const searchInput = document.getElementById('mv_stallSearch');
+        const listContainer = document.getElementById('mv_stallDropdownList');
+        const loader = document.getElementById('mv_stallLoading');
+        
+        if (!dateStr) return;
+        const dObj = new Date(dateStr);
+        const day = dObj.getDay();
+        if (day !== 0 && day !== 3 && day !== 6) {
+            showAlert("สามารถย้ายได้เฉพาะวันที่มีตลาด (พุธ, เสาร์, อาทิตย์) เท่านั้น", "วันไม่ถูกต้อง", true);
+            if(searchInput) searchInput.disabled = true;
+            if(listContainer) listContainer.innerHTML = '<div class="p-2 text-xs text-red-400 text-center">เลือกวันไม่ถูกต้อง</div>';
+            return;
+        }
+        
+        if(searchInput) searchInput.disabled = true;
+        if(loader) loader.classList.remove('hidden');
+        document.getElementById('mv_newStall').value = "";
+        if(searchInput) searchInput.value = "";
+
+        google.script.run.withSuccessHandler((res) => {
+            if(searchInput) searchInput.disabled = false;
+            if(loader) loader.classList.add('hidden');
+            if(listContainer) listContainer.innerHTML = '';
+            if (res.success && res.stalls.length > 0) {
+                res.stalls.forEach(s => {
+                    const div = document.createElement('div');
+                    div.className = 'mv-stall-option p-2 hover:bg-purple-50 cursor-pointer text-sm border-b last:border-0';
+                    div.innerText = s;
+                    div.dataset.value = s;
+                    div.onclick = () => selectMoveStall(s);
+                    listContainer.appendChild(div);
+                });
+            } else {
+                if(listContainer) listContainer.innerHTML = '<div class="p-2 text-xs text-red-400 text-center">ไม่มีล็อคว่าง</div>';
+            }
+        }).withFailureHandler((err) => {
+            if(searchInput) searchInput.disabled = false;
+            if(loader) loader.classList.add('hidden');
+            if(listContainer) listContainer.innerHTML = '<div class="p-2 text-xs text-red-500 text-center">Error Loading</div>';
+        }).getAvailableStalls(dateStr);
+    }
+
+    function showMoveStallList() {
+        const dateStr = document.getElementById('mv_newDate').value;
+        const dObj = new Date(dateStr);
+        const day = dObj.getDay();
+        if (day !== 0 && day !== 3 && day !== 6) return;
+        document.getElementById('mv_stallDropdownList').classList.remove('hidden');
+    }
+
+    document.addEventListener('click', function(e) {
+        const wrapper = document.getElementById('moveBookingModal');
+        const input = document.getElementById('mv_stallSearch');
+        const list = document.getElementById('mv_stallDropdownList');
+        if (wrapper && !wrapper.classList.contains('hidden')) {
+             if (e.target !== input && e.target !== list && list && !list.contains(e.target)) {
+                 list.classList.add('hidden');
+             }
+        }
+    });
+
+    function filterMoveStalls() {
+        resetMoveCalculationState();
+        const filter = document.getElementById('mv_stallSearch').value.toUpperCase();
+        const options = document.querySelectorAll('.mv-stall-option');
+        options.forEach(div => {
+            if (div.innerText.toUpperCase().indexOf(filter) > -1) {
+                div.style.display = "";
+            } else {
+                div.style.display = "none";
+            }
+        });
+        document.getElementById('mv_stallDropdownList').classList.remove('hidden');
+    }
+
+    function selectMoveStall(stallName) {
+        resetMoveCalculationState();
+        document.getElementById('mv_stallSearch').value = stallName;
+        document.getElementById('mv_newStall').value = stallName;
+        document.getElementById('mv_stallDropdownList').classList.add('hidden');
+        checkMovePrice(); 
+    }
+
+    function checkMovePrice() {
+        const newDate = document.getElementById('mv_newDate').value;
+        let newStall = document.getElementById('mv_newStall').value;
+        const searchVal = document.getElementById('mv_stallSearch').value;
+
+        if (!newStall && searchVal) {
+            newStall = searchVal.trim().toUpperCase();
+            document.getElementById('mv_newStall').value = newStall;
+        }
+
+        if (!newDate || !newStall) return;
+
+        const btnConf = document.getElementById('btnConfirmMove');
+        btnConf.disabled = true;
+        btnConf.classList.add('opacity-50', 'cursor-not-allowed');
+
+        const resArea = document.getElementById('mv_resultArea');
+        resArea.classList.remove('hidden');
+        const boxEl = document.getElementById('mv_resultBox');
+        if(boxEl) boxEl.innerHTML = `<div class="text-center text-gray-500 py-2"><i class="fa-solid fa-circle-notch fa-spin mr-2"></i>กำลังคำนวณ...</div>`;
+        
+        google.script.run.withSuccessHandler((res) => {
+            if (res.success) {
+                renderMovePreview(res.data);
+            } else {
+                if(boxEl) boxEl.innerHTML = `<div class="p-2 text-red-600 font-bold text-center text-xs">${res.message}</div>`;
+            }
+        }).withFailureHandler((err) => {
+            if(boxEl) boxEl.innerHTML = `<div class="p-2 text-red-600 font-bold text-center text-xs">Error: ${err}</div>`;
+        }).previewMoveBooking(moveContext.bookingId, moveContext.oldStall, newDate, newStall);
+    }
+
+    function renderMovePreview(data) {
+        moveContext.calculatedNewPrice = data.newPrice; 
+        moveContext.diffAmount = data.diff; 
+
+        const resArea = document.getElementById('mv_resultArea');
+        const payOptions = document.getElementById('mv_paymentOptions');
+        const resultBox = document.getElementById('mv_resultBox');
+        
+        const diffColor = data.diff > 0 ? "text-red-600" : (data.diff < 0 ? "text-green-600" : "text-gray-600");
+        const boxColor = data.diff > 0 ? "bg-orange-50 border-orange-200" : "bg-green-50 border-green-200";
+
+        const resultHtml = `
+            <div class="flex justify-between">
+                <span class="text-gray-600">มูลค่าที่มี (Credit):</span>
+                <span class="font-bold">${data.oldPrice.toLocaleString()}</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-600">ราคาใหม่:</span>
+                <span class="font-bold">${data.newPrice.toLocaleString()}</span>
+            </div>
+            <div class="border-t border-gray-300 my-1"></div>
+            <div class="flex justify-between font-bold text-base ${diffColor}">
+                <span>ส่วนต่าง:</span>
+                <span>${data.diff > 0 ? '+' : ''}${data.diff.toLocaleString()}</span>
+            </div>
+            <p class="text-xs mt-1 text-center font-bold ${diffColor}">${data.message}</p>
+        `;
+        
+        resultBox.className = `p-3 rounded-lg border text-sm flex flex-col gap-1 ${boxColor}`;
+        resultBox.innerHTML = resultHtml;
+
+        resArea.classList.remove('hidden');
+
+        if (data.diff > 0) {
+            if(payOptions) payOptions.classList.remove('hidden');
+        } else {
+            if(payOptions) payOptions.classList.add('hidden');
+        }
+
+        const btnConf = document.getElementById('btnConfirmMove');
+        btnConf.disabled = false;
+        btnConf.classList.remove('opacity-50', 'cursor-not-allowed');
+    }
+
+    function submitMoveBooking() {
+        const newDate = document.getElementById('mv_newDate').value;
+        const newStall = document.getElementById('mv_newStall').value;
+
+        if(moveContext.calculatedNewPrice === null) return;
+
+        let paymentData = null;
+        if (moveContext.diffAmount > 0) {
+            // FIX: Check user decision Pay Now or Pay Later
+            const decisionEl = document.querySelector('input[name="mv_payDecision"]:checked');
+            const decision = decisionEl ? decisionEl.value : 'payNow';
+
+            if (decision === 'payNow') {
+                const methodEl = document.querySelector('input[name="mv_payMethod"]:checked');
+                paymentData = {
+                    amount: moveContext.diffAmount,
+                    method: methodEl ? methodEl.value : 'Cash'
+                };
+            }
+            // If payLater, paymentData remains null -> No Transaction, Status Pending
+        }
+
+        const officer = currentAdmin ? currentAdmin.name : "System";
+
+        showLoader();
+        google.script.run.withSuccessHandler((res) => {
+            hideLoader();
+            if (res.success) {
+                closeMoveModal();
+                showAlert("ย้ายล็อคเรียบร้อย", "สำเร็จ", false);
+                fetchData(true); 
+            } else {
+                showAlert(res.message, "ข้อผิดพลาด", true);
+            }
+        }).withFailureHandler((err) => {
+            hideLoader();
+            showAlert("Error: " + err, "ข้อผิดพลาด", true);
+        }).confirmMoveBooking(
+            moveContext.bookingId, 
+            moveContext.oldStall, 
+            newDate, 
+            newStall, 
+            moveContext.calculatedNewPrice,
+            paymentData, 
+            officer
+        );
+    }
+</script>

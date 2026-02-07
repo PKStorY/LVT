@@ -1,0 +1,25 @@
+<script>
+    /**
+     * Scripts_Print_Storage
+     * Logic for printing Storage tickets
+     */
+
+    function printStorageTicket(data) {
+        const html = generateStorageTicketHtml(data);
+        
+        const ticketArea = getOrCreateTicketArea('ticket-area');
+        const monthlyArea = getOrCreateTicketArea('monthly-ticket-area');
+        
+        ticketArea.innerHTML = html;
+        ticketArea.style.display = 'block';
+        monthlyArea.style.display = 'none';
+
+        setTimeout(function() {
+            window.print();
+            ticketArea.style.display = 'none';
+        }, 500);
+        
+        const refId = data.stallName + "_" + new Date().getTime();
+        google.script.run.saveTicketToDrive(html, "Storage_" + refId, "Storage Ticket");
+    }
+</script>

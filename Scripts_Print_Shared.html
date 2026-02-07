@@ -1,0 +1,61 @@
+<script>
+    /**
+     * Scripts_Print_Shared
+     * Shared utilities for printing (Images, Formatting, Ticket Area)
+     */
+
+    // --- CONFIG: IMAGE SOURCES ---
+    const ticketImages = [
+        "https://img2.pic.in.th/pic/Profile-Alpha_0.png", 
+        "https://img5.pic.in.th/file/secure-sv1/S_gainfriends_2dbarcodes_BW73c64bbdc0272b36.png" 
+    ];
+
+    function preloadTicketImages() {
+        ticketImages.forEach(function(url) {
+            const img = new Image();
+            img.src = url;
+        });
+    }
+    preloadTicketImages();
+
+    // Helper: Formats
+    function fmtMoney(amount) {
+        return parseFloat(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function fmtNoDec(amount) {
+        return parseFloat(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    }
+
+    // Helper: Date Format
+    function formatTicketDateTime(dateObj) {
+        if (!dateObj) return "-";
+        const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+        const d = dateObj.getDate();
+        const m = thaiMonths[dateObj.getMonth()];
+        const y = dateObj.getFullYear() + 543;
+        const time = `${String(dateObj.getHours()).padStart(2,'0')}:${String(dateObj.getMinutes()).padStart(2,'0')}:${String(dateObj.getSeconds()).padStart(2,'0')}`;
+        return `${d} ${m} ${y} ${time}`;
+    }
+
+    // Helper: Determine Officer Display
+    function getOfficerDisplay() {
+        if (!currentAdmin) return "-";
+        if (currentAdmin.employeeId && String(currentAdmin.employeeId).trim() !== "") {
+            return currentAdmin.employeeId;
+        }
+        return currentAdmin.name || "-";
+    }
+
+    // Helper: Get or Create Ticket Area
+    function getOrCreateTicketArea(id) {
+        let el = document.getElementById(id);
+        if (!el) {
+            el = document.createElement('div');
+            el.id = id;
+            el.style.display = 'none';
+            document.body.appendChild(el);
+        }
+        return el;
+    }
+</script>

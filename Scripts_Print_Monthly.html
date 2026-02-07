@@ -1,0 +1,245 @@
+<script>
+    /**
+     * Scripts_Print_Monthly
+     * Logic การเตรียมข้อมูลและพิมพ์ตั๋วรายเดือน
+     * FIX: Add Preview Functionality
+     */
+
+    function printMonthlyTicket(bookingId, currentPaymentId, currentPaymentAmount, currentPaymentDate, currentPaymentTime, currentPaymentMethod) {
+        fetchTicketDataAndAction(bookingId, currentPaymentId, currentPaymentAmount, currentPaymentDate, currentPaymentTime, currentPaymentMethod, 'print');
+    }
+
+    // FIX: New Function for Preview
+    function openMonthlyTicketPreview(bookingId, currentPaymentId, currentPaymentAmount, currentPaymentDate, currentPaymentTime, currentPaymentMethod) {
+        fetchTicketDataAndAction(bookingId, currentPaymentId, currentPaymentAmount, currentPaymentDate, currentPaymentTime, currentPaymentMethod, 'preview');
+    }
+
+    // Shared logic to fetch data and perform action (print or preview)
+    function fetchTicketDataAndAction(bookingId, currentPaymentId, currentPaymentAmount, currentPaymentDate, currentPaymentTime, currentPaymentMethod, action) {
+        showLoader();
+
+        // 1. Validate Booking Data
+        if (typeof monthlyDataCache === 'undefined' || !monthlyDataCache) {
+            hideLoader();
+            showAlert("ไม่พบข้อมูล Cache รายเดือน กรุณารีเฟรชหน้าเว็บ", "ข้อผิดพลาด", true);
+            return;
+        }
+
+        const booking = monthlyDataCache.find(function(x) { return x.id === bookingId; });
+        if (!booking) {
+            hideLoader();
+            showAlert("ไม่พบข้อมูลการจอง (ID: " + bookingId + ")", "ข้อผิดพลาด", true);
+            return;
+        }
+
+        // 2. Fetch History & Process
+        google.script.run.withSuccessHandler(function(res) {
+            try {
+                if (!res.success) {
+                    throw new Error("Load history failed: " + res.message);
+                }
+
+                const history = res.data || []; 
+                
+                const thaiMonthsFull = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+                const thaiMonthsShort = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+                
+                const safeDate = currentPaymentDate || new Date().toISOString().split('T')[0];
+                const safeTime = currentPaymentTime || "00:00:00"; 
+
+                let payDateFull = "-";
+                if (safeDate) {
+                    const parts = safeDate.split('-');
+                    const py = parseInt(parts[0]);
+                    const pm = parseInt(parts[1]);
+                    const pd = parseInt(parts[2]);
+                    payDateFull = `${pd} ${thaiMonthsFull[pm - 1]} ${py + 543} ${safeTime}`;
+                }
+
+                const storageFee = parseFloat(booking.storageFee || 0);
+                const elecUnit = parseFloat(booking.elecUnit || 0);
+                const elecCostPerDay = elecUnit * 10;
+
+                let totalPaid = 0;
+                history.forEach(function(h) {
+                    totalPaid += parseFloat(h.amount || 0);
+                });
+                
+                let startDate = new Date();
+                if(booking.startDate) startDate = new Date(booking.startDate);
+                
+                const sy = startDate.getFullYear();
+                const sm = startDate.getMonth();
+                const lastDayObj = new Date(sy, sm + 1, 0); 
+                const lastDay = lastDayObj.getDate();
+                
+                let stallsObj = [];
+                try { 
+                    if (booking.stallDetails && booking.stallDetails !== "undefined") {
+                        stallsObj = JSON.parse(booking.stallDetails); 
+                    }
+                } catch (e) { console.warn("Error parsing stallDetails", e); }
+
+                let countWed = 0, countSat = 0, countSun = 0;
+                for (let d = startDate.getDate(); d <= lastDay; d++) {
+                    const tmp = new Date(sy, sm, d);
+                    const dw = tmp.getDay();
+                    if (dw === 3) countWed++;
+                    else if (dw === 6) countSat++;
+                    else if (dw === 0) countSun++;
+                }
+
+                const dayDetails = [];
+                const dayMap = [
+                    { id: 3, label: "วันพุธ", count: countWed },
+                    { id: 6, label: "วันเสาร์", count: countSat },
+                    { id: 0, label: "วันอาทิตย์", count: countSun }
+                ];
+
+                let calculatedGrandTotal = 0;
+
+                if (typeof stallsData === 'undefined' || !stallsData) {
+                    throw new Error("ข้อมูลราคาล็อค (Stalls Data) ไม่พร้อมใช้งาน");
+                }
+
+                dayMap.forEach(function(dayInfo) {
+                    if (dayInfo.count === 0) return;
+                    
+                    const activeStalls = stallsObj.filter(function(s) {
+                        return s.days && s.days.includes(dayInfo.id);
+                    });
+                    
+                    if (activeStalls.length === 0) return;
+                    
+                    const stallNames = activeStalls.map(function(s) { return s.name; }).join(", ");
+                    let pricePerDay = 0;
+                    
+                    activeStalls.forEach(function(s) {
+                        const sInfo = stallsData.find(function(ref) { return ref.name === s.name; });
+                        if (sInfo) {
+                            let p = 0;
+                            const pWed = parseFloat(sInfo.priceWed || 0);
+                            const pSat = parseFloat(sInfo.priceSat || 0);
+                            const pSun = parseFloat(sInfo.priceSun || 0);
+                            const pMonth = parseFloat(sInfo.priceMonth || 0);
+
+                            const allSelectedDays = new Set();
+                            stallsObj.forEach(so => { if(so.days) so.days.forEach(d => allSelectedDays.add(parseInt(d))); });
+                            const isGlobalFullPackage = allSelectedDays.has(0) && allSelectedDays.has(3) && allSelectedDays.has(6);
+
+                            if (booking.customerType === 'Regular') {
+                                if (dayInfo.id === 3) p = pWed;
+                                else if (dayInfo.id === 6) p = pSat;
+                                else if (dayInfo.id === 0) p = pSun;
+                            } else if (isGlobalFullPackage && pMonth > 0) {
+                                p = pMonth;
+                            } else {
+                                if (dayInfo.id === 3) p = pWed;
+                                else if (dayInfo.id === 6) p = pSat;
+                                else if (dayInfo.id === 0) p = pSun;
+                            }
+                            
+                            if (booking.customerType === 'VIP') p = 0;
+                            pricePerDay += p;
+                        }
+                    });
+                    
+                    const totalForDay = (pricePerDay * dayInfo.count) + (elecCostPerDay * dayInfo.count);
+                    calculatedGrandTotal += totalForDay;
+                    dayDetails.push({
+                        dayLabel: dayInfo.label,
+                        stalls: stallNames,
+                        count: dayInfo.count,
+                        pricePerDay: pricePerDay,
+                        elecCostPerDay: elecCostPerDay,
+                        total: totalForDay
+                    });
+                });
+
+                calculatedGrandTotal += storageFee;
+
+                const priceExVat = calculatedGrandTotal / 1.07;
+                const vat = calculatedGrandTotal - priceExVat;
+                const remaining = calculatedGrandTotal - totalPaid;
+                const percent = (calculatedGrandTotal > 0) ? (totalPaid / calculatedGrandTotal) * 100 : 0;
+
+                const formattedHistory = history.map(function(h) {
+                    let hDate = "-";
+                    if (h.date) {
+                        const hParts = h.date.split('-');
+                        if(hParts.length === 3) {
+                            hDate = `${hParts[2]} ${thaiMonthsShort[parseInt(hParts[1])-1]} ${parseInt(hParts[0]) + 543}`;
+                        }
+                    }
+                    const methodTxt = h.method === 'Cash' ? 'เงินสด' : 'โอนจ่าย';
+                    return {
+                        date: hDate,
+                        method: methodTxt,
+                        amount: h.amount
+                    };
+                });
+
+                const officerName = getOfficerDisplay();
+
+                const ticketData = {
+                    paymentId: currentPaymentId || "-",
+                    paymentDateTime: payDateFull,
+                    bookingMonth: booking.bookingMonth || '-',
+                    bookerName: booking.bookerName || '',
+                    productName: booking.product || '',
+                    dayDetails: dayDetails,
+                    storageFee: storageFee,
+                    paymentHistory: formattedHistory,
+                    priceExVat: priceExVat,
+                    vat: vat,
+                    grandTotal: calculatedGrandTotal,
+                    totalPaid: totalPaid,
+                    percent: percent,
+                    remaining: remaining,
+                    officerName: officerName,
+                    currentPaymentAmount: currentPaymentAmount || 0,
+                    currentPaymentMethod: currentPaymentMethod || "-"
+                };
+
+                if (typeof generateMonthlyTicketHtml !== 'function') {
+                    throw new Error("Function generateMonthlyTicketHtml not found");
+                }
+                
+                const ticketHtml = generateMonthlyTicketHtml(ticketData);
+                hideLoader(); 
+
+                if (action === 'print') {
+                    const ticketArea = getOrCreateTicketArea('ticket-area');
+                    const monthlyArea = getOrCreateTicketArea('monthly-ticket-area');
+                    
+                    ticketArea.innerHTML = ticketHtml;
+                    ticketArea.style.display = 'block';
+                    monthlyArea.style.display = 'none';
+
+                    setTimeout(function() {
+                        window.print();
+                        ticketArea.style.display = 'none';
+                    }, 500);
+
+                    google.script.run.saveTicketToDrive(ticketHtml, `${booking.bookingMonth}_${bookingId}`, "Month Ticket");
+                } else if (action === 'preview') {
+                    const container = document.getElementById('previewContentArea');
+                    if(container) {
+                        container.innerHTML = ticketHtml;
+                        document.getElementById('ticketPreviewModal').classList.remove('hidden');
+                    }
+                }
+
+            } catch (e) {
+                hideLoader();
+                console.error(e);
+                showAlert("เกิดข้อผิดพลาด: " + e.message, "ข้อผิดพลาด", true);
+            }
+
+        }).withFailureHandler(function(err) {
+             hideLoader();
+             console.error(err);
+             showAlert("Server Error: " + err.message, "ข้อผิดพลาด", true);
+        }).getPaymentHistory(bookingId);
+    }
+</script>

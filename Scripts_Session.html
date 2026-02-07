@@ -1,0 +1,211 @@
+<script>
+    /**
+     * Scripts_Session
+     * จัดการ Session และ Firebase Authentication
+     * Update: Centralized Logic (Fixed Logout/Login Modal Issues)
+     */
+
+    // Firebase Config from User
+    const firebaseConfig = {
+      apiKey: "AIzaSyAKExhCzumzvCoU0tpjiyU_zPHiTLgaEzM",
+      authDomain: "ladsawaivintage-9bb71.firebaseapp.com",
+      projectId: "ladsawaivintage-9bb71",
+      storageBucket: "ladsawaivintage-9bb71.firebasestorage.app",
+      messagingSenderId: "1082363055126",
+      appId: "1:1082363055126:web:f646e4ec1973e353cb7937"
+    };
+
+    // Initialize Firebase
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
+
+    // Auth Variables
+    const auth = firebase.auth();
+    const provider = new firebase.auth.GoogleAuthProvider();
+
+    // Check Session (Run on Load)
+    function checkSession() {
+        const sessionJson = localStorage.getItem(SESSION_KEY);
+        if (sessionJson) {
+            try {
+                const session = JSON.parse(sessionJson);
+                const now = Date.now();
+                if (now - session.lastActive < SESSION_TIMEOUT) {
+                    restoreAdminUI(session);
+                    return;
+                }
+            } catch(e) { console.error("Session Parse Error", e); }
+        }
+        localStorage.removeItem(SESSION_KEY);
+    }
+
+    function restoreAdminUI(userSession) {
+        currentAdmin = { 
+            name: userSession.name, 
+            role: userSession.role,
+            employeeId: userSession.employeeId,
+            email: userSession.email,
+            photoUrl: userSession.photoUrl
+        };
+
+        const badge = document.getElementById('admin_badge');
+        if(badge) badge.innerText = userSession.name;
+        
+        const avatar = document.getElementById('userAvatar');
+        const defIcon = document.getElementById('defaultUserIcon');
+        if (avatar && userSession.photoUrl) {
+            avatar.src = userSession.photoUrl;
+            avatar.classList.remove('hidden');
+            if(defIcon) defIcon.classList.add('hidden');
+        }
+
+        const idsToShow = [
+            'btnNextDate', 'btnPrevDate', 'btnArchive', 
+            'btnMonthlyTop', 'btnMonthlyTopMobile',
+            'btnStorageTop', 'btnStorageTopMobile'
+        ];
+        idsToShow.forEach(id => {
+            const el = document.getElementById(id);
+            if(el) { el.classList.remove('hidden'); el.style.display = 'inline-flex'; }
+        });
+
+        const roleStr = String(currentAdmin.role || "").trim().toLowerCase();
+        const isAdminOrSuper = (roleStr === 'admin' || roleStr === 'super admin');
+        const isSuper = (roleStr === 'super admin');
+
+        if(isAdminOrSuper) {
+            const btnRef = document.getElementById('btnRefreshCache');
+            if(btnRef) { btnRef.classList.remove('hidden'); btnRef.style.display = 'inline-flex'; }
+            const btnRefMob = document.getElementById('btnRefreshCacheMobile');
+            if(btnRefMob) { btnRefMob.classList.remove('hidden'); btnRefMob.style.display = 'inline-flex'; }
+        }
+
+        if(isSuper) {
+            const btnDash = document.getElementById('btnDashboard');
+            if(btnDash) { btnDash.classList.remove('hidden'); btnDash.style.display = 'inline-flex'; }
+            const btnDashMob = document.getElementById('btnDashboardMobile');
+            if(btnDashMob) { btnDashMob.classList.remove('hidden'); btnDashMob.style.display = 'inline-flex'; }
+            
+            const btnSet = document.getElementById('btnSettings');
+            if(btnSet) { btnSet.classList.remove('hidden'); btnSet.style.display = 'inline-flex'; }
+            const btnSetMob = document.getElementById('btnSettingsMobile');
+            if(btnSetMob) { btnSetMob.classList.remove('hidden'); btnSetMob.style.display = 'inline-flex'; }
+        }
+
+        // Close any open login modals
+        if(typeof hideModal === 'function') {
+            hideModal('loginModal');
+            hideModal('logoutModal');
+        }
+        
+        updateSessionActivity();
+    }
+
+    function updateSessionActivity() {
+        if (currentAdmin) {
+            const session = { ...currentAdmin, lastActive: Date.now() };
+            localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+        }
+    }
+
+    // Google Login Function
+    function doGoogleLogin() {
+        const btn = document.getElementById('btnGoogleLogin');
+        if(btn) {
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> กำลังตรวจสอบ...';
+            btn.classList.add('opacity-70', 'cursor-not-allowed');
+        }
+
+        auth.signInWithPopup(provider)
+            .then((result) => {
+                verifyWithBackend(result.user.email, result.user.photoURL);
+            })
+            .catch((error) => {
+                console.error(error);
+                showAlert("เกิดข้อผิดพลาด: " + error.message, "เข้าสู่ระบบไม่สำเร็จ", true);
+                if(btn) {
+                    btn.innerHTML = '<img src="https://www.svgrepo.com/show/475656/google-color.svg" class="w-6 h-6 group-hover:brightness-200 transition-all duration-300"><span class="text-sm font-kanit">เข้าสู่ระบบด้วย Google</span>';
+                    btn.classList.remove('opacity-70', 'cursor-not-allowed');
+                }
+            });
+    }
+
+    function verifyWithBackend(email, photoUrl) {
+        showLoader();
+        google.script.run.withSuccessHandler(function(res) {
+            hideLoader();
+            if (res.success) {
+                const userSession = {
+                    name: res.name,
+                    role: res.role,
+                    employeeId: res.employeeId,
+                    email: email,
+                    photoUrl: photoUrl
+                };
+                restoreAdminUI(userSession);
+                showAlert(`ยินดีต้อนรับ ${res.name}`, "เข้าสู่ระบบสำเร็จ", false);
+            } else {
+                auth.signOut();
+                showAlert(res.message, "เข้าสู่ระบบไม่สำเร็จ", true);
+                const btn = document.getElementById('btnGoogleLogin');
+                if(btn) {
+                    btn.innerHTML = '<img src="https://www.svgrepo.com/show/475656/google-color.svg" class="w-6 h-6 group-hover:brightness-200 transition-all duration-300"><span class="text-sm font-kanit">เข้าสู่ระบบด้วย Google</span>';
+                    btn.classList.remove('opacity-70', 'cursor-not-allowed');
+                }
+            }
+        }).checkLogin(email); 
+    }
+
+    function confirmLogout() {
+        if(typeof hideModal === 'function') hideModal('logoutModal');
+        
+        auth.signOut().then(() => { console.log("Firebase Signed Out"); });
+
+        currentAdmin = null;
+        localStorage.removeItem(SESSION_KEY);
+        
+        const badge = document.getElementById('admin_badge');
+        if(badge) badge.innerText = "";
+        
+        const avatar = document.getElementById('userAvatar');
+        const defIcon = document.getElementById('defaultUserIcon');
+        if(avatar) avatar.classList.add('hidden');
+        if(defIcon) defIcon.classList.remove('hidden');
+
+        const elementsToHide = [
+            'btnNextDate', 'btnPrevDate', 'btnArchive', 
+            'btnMonthlyTop', 'btnMonthlyTopMobile',
+            'btnStorageTop', 'btnStorageTopMobile',
+            'btnRefreshCache', 'btnRefreshCacheMobile',
+            'btnSettings', 'btnSettingsMobile',
+            'btnDashboard', 'btnDashboardMobile'
+        ];
+        elementsToHide.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.classList.add('hidden');
+                el.style.display = ''; 
+            }
+        });
+        
+        fetchData();
+    }
+
+    // FIX: Main Function to Toggle Panels (Replaces conflicting versions)
+    function toggleAdminPanel() {
+        if (currentAdmin) {
+            // Populate Logout Modal Data
+            const nameEl = document.getElementById('logout_name');
+            const roleEl = document.getElementById('logout_role');
+            if(nameEl) nameEl.innerText = currentAdmin.name || 'Admin';
+            if(roleEl) roleEl.innerText = currentAdmin.role || 'User';
+            
+            if(typeof showModal === 'function') showModal('logoutModal');
+            else document.getElementById('logoutModal').classList.remove('hidden');
+        } else {
+            if(typeof showModal === 'function') showModal('loginModal');
+            else document.getElementById('loginModal').classList.remove('hidden');
+        }
+    }
+</script>

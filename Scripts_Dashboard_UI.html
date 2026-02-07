@@ -1,0 +1,102 @@
+<script>
+    /**
+     * Scripts_Dashboard_UI
+     * Isolated UI Helper Functions for Dashboard & Accounting
+     * Prevents conflict with main booking system UI scripts.
+     */
+
+    function showLoader() {
+        const overlay = document.getElementById('dashLoading');
+        if (overlay) overlay.classList.remove('hidden');
+    }
+
+    function hideLoader() {
+        const overlay = document.getElementById('dashLoading');
+        if (overlay) overlay.classList.add('hidden');
+    }
+
+    // --- DASHBOARD SPECIFIC MODAL LOGIC ---
+    function showModal(modalId) {
+        const modal = document.getElementById(modalId);
+        if (!modal) return;
+        
+        modal.style.display = 'flex';
+        modal.classList.remove('hidden');
+        
+        // Remove 'pointer-events-none' and 'opacity-0' if present
+        modal.classList.remove('pointer-events-none', 'opacity-0');
+        
+        // Add active class to body to lock scroll
+        if (!document.body.classList.contains('modal-active')) {
+            const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+            if (scrollbarWidth > 0) {
+                document.body.style.paddingRight = `${scrollbarWidth}px`;
+            }
+            document.body.classList.add('modal-active');
+        }
+    }
+
+    function hideModal(modalId) {
+        const modal = document.getElementById(modalId);
+        if (!modal) return;
+        
+        modal.classList.add('opacity-0'); 
+        modal.classList.add('pointer-events-none');
+        
+        setTimeout(() => {
+            modal.style.display = 'none';
+            modal.classList.add('hidden'); 
+            
+            // Check if any other modals are open
+            const activeModals = document.querySelectorAll('.modal:not(.hidden):not(.opacity-0)');
+            if (activeModals.length === 0) {
+                document.body.classList.remove('modal-active');
+                document.body.style.paddingRight = '';
+            }
+        }, 300); 
+    }
+
+    // --- ALERTS ---
+    function showAlert(message, title = "แจ้งเตือน", isError = false) {
+        const modal = document.getElementById('customAlertModal');
+        const iconEl = document.getElementById('alertIcon');
+        const titleEl = document.getElementById('alertTitle');
+        const msgEl = document.getElementById('alertMessage');
+
+        if (isError) {
+            iconEl.innerHTML = '<i class="fa-solid fa-circle-xmark text-red-500 animate-pulse"></i>';
+            titleEl.className = "text-xl font-bold text-red-600 mb-2 font-kanit";
+        } else {
+            iconEl.innerHTML = '<i class="fa-solid fa-circle-check text-green-500 animate-bounce"></i>';
+            titleEl.className = "text-xl font-bold text-green-600 mb-2 font-kanit";
+        }
+        
+        titleEl.innerText = title;
+        msgEl.innerText = message;
+        
+        showModal('customAlertModal');
+    }
+
+    function closeAlert() {
+        hideModal('customAlertModal');
+    }
+
+    // --- CONFIRM ---
+    function showConfirm(message, title, onConfirm) {
+        const modal = document.getElementById('customConfirmModal');
+        document.getElementById('confirmTitle').innerText = title;
+        document.getElementById('confirmMessage').innerText = message;
+        
+        const btnConfirm = document.getElementById('btnConfirmAction');
+        // Remove old listeners by cloning
+        const newBtn = btnConfirm.cloneNode(true);
+        btnConfirm.parentNode.replaceChild(newBtn, btnConfirm);
+        
+        newBtn.onclick = function() {
+            hideModal('customConfirmModal');
+            if (onConfirm) onConfirm();
+        };
+
+        showModal('customConfirmModal');
+    }
+</script>

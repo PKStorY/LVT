@@ -1,0 +1,233 @@
+<script>
+    /**
+     * Scripts_Accounting
+     * Client-side Logic for Accounting Tab
+     * Update: Reverted to Single Data Fetch (Stable)
+     * Update: Fixed submitClosing officer name reference error
+     */
+
+    function fetchAccountingOnly() {
+        const loader = document.getElementById('dashLoading');
+        if(loader) loader.classList.remove('hidden');
+        
+        const dateInput = document.getElementById('acc_date_filter');
+        const dateVal = dateInput ? dateInput.value : "";
+        
+        google.script.run
+            .withSuccessHandler((res) => {
+                if(loader) loader.classList.add('hidden');
+                if (res.success) {
+                    // Update Global Data for Report Printing
+                    if (!window.currentDashboardData) window.currentDashboardData = {};
+                    window.currentDashboardData.accounting = res.accounting;
+                    window.currentDashboardData.stalls = res.stalls;
+                    window.currentDashboardData.bookings = res.bookings;
+                    window.currentDashboardData.monthlyStats = res.monthlyStats;
+                    
+                    renderAccountingUI(res.accounting, res.date);
+                } else {
+                    showAlert(res.message, "Error", true);
+                }
+            })
+            .withFailureHandler((err) => {
+                if(loader) loader.classList.add('hidden');
+                showAlert("Fetch Failed: " + err, "Error", true);
+            })
+            .getAccountingData(dateVal);
+    }
+
+    function renderAccountingUI(acc, dateStr) {
+        if(!acc) return;
+        
+        // Summary
+        const summary = acc.summary;
+        if(document.getElementById('rpt_sum_total')) document.getElementById('rpt_sum_total').innerText = summary.totalIncome.toLocaleString();
+
+        // Tables
+        renderIncomeTable(acc.incomes);
+        renderExpenseTable(acc.expenses);
+        
+        // Closing Form Defaults
+        const sysCashInput = document.getElementById('closing_system_cash');
+        const netCashDisplay = document.getElementById('rpt_sum_net_cash');
+        const netCash = summary.netCash; 
+        
+        if(sysCashInput) sysCashInput.value = netCash;
+        if(netCashDisplay) netCashDisplay.innerText = netCash.toLocaleString(undefined, {minimumFractionDigits: 2});
+        
+        if(typeof calcDiff === 'function') calcDiff();
+    }
+
+    function renderIncomeTable(list) {
+        const tbody = document.getElementById('tbl_incomes');
+        const summaryEl = document.getElementById('header_inc_summary');
+        
+        if(!tbody) return;
+        tbody.innerHTML = '';
+        let sumCash = 0;
+        let sumTransfer = 0;
+
+        if (!list || list.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="2" class="p-4 text-center text-[#8D6E63] italic text-xs font-hand">ไม่มีรายรับในวันนี้</td></tr>';
+        } else {
+            list.sort((a,b) => b.amount - a.amount);
+            list.forEach(item => {
+                const amt = parseFloat(item.amount || 0);
+                if (item.method === 'Cash') sumCash += amt; else sumTransfer += amt;
+
+                const methodBadge = item.method === 'Cash' 
+                    ? '<span class="text-[#2E7D32] bg-[#E8F5E9] px-1.5 py-0.5 rounded border border-[#A5D6A7] font-bold">สด</span>' 
+                    : '<span class="text-[#1565C0] bg-[#E3F2FD] px-1.5 py-0.5 rounded border border-[#90CAF9] font-bold">โอน</span>';
+                
+                const typeBadge = item.type === 'Manual' 
+                    ? `<span class="text-[#E65100] border border-[#FFCC80] px-1 rounded ml-1 bg-[#FFF3E0]">อื่นๆ</span>` 
+                    : '';
+                
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-[#FFF8E1] transition-colors border-b border-[#D7CCC8] last:border-0";
+                tr.innerHTML = `
+                    <td class="p-3">
+                        <div class="font-bold text-[#5D4037] text-xs flex items-center flex-wrap font-hand">
+                            ${item.category} ${typeBadge}
+                        </div>
+                        <div class="text-[10px] text-[#8D6E63] truncate max-w-[200px] mt-0.5 flex items-center gap-1">
+                            ${item.desc || '-'} ${methodBadge}
+                        </div>
+                    </td>
+                    <td class="p-3 text-right text-sm font-mono text-[#2E7D32] font-bold">+${amt.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+        
+        if(summaryEl) summaryEl.innerText = `สด: ${sumCash.toLocaleString()} | โอน: ${sumTransfer.toLocaleString()}`;
+    }
+
+    function renderExpenseTable(list) {
+        const tbody = document.getElementById('tbl_expenses');
+        const summaryEl = document.getElementById('header_exp_summary');
+
+        if(!tbody) return;
+        tbody.innerHTML = '';
+        let sumCash = 0;
+        let sumTransfer = 0;
+
+        if (!list || list.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="2" class="p-4 text-center text-[#8D6E63] italic text-xs font-hand">ไม่มีรายจ่ายในวันนี้</td></tr>';
+        } else {
+            list.forEach(item => {
+                const amt = parseFloat(item.amount || 0);
+                if (item.method === 'Cash') sumCash += amt; else sumTransfer += amt;
+
+                const methodBadge = item.method === 'Cash' 
+                    ? '<span class="text-[#2E7D32] bg-[#E8F5E9] px-1.5 py-0.5 rounded border border-[#A5D6A7] font-bold">สด</span>' 
+                    : '<span class="text-[#1565C0] bg-[#E3F2FD] px-1.5 py-0.5 rounded border border-[#90CAF9] font-bold">โอน</span>';
+
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-[#FFF8E1] transition-colors border-b border-[#D7CCC8] last:border-0";
+                tr.innerHTML = `
+                    <td class="p-3">
+                        <div class="font-bold text-[#5D4037] text-xs font-hand">${item.category}</div>
+                        <div class="text-[10px] text-[#8D6E63] truncate max-w-[200px] mt-0.5 flex items-center gap-1">
+                            ${item.item || '-'} ${methodBadge}
+                        </div>
+                    </td>
+                    <td class="p-3 text-right text-sm font-mono text-[#C62828] font-bold">-${amt.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+        
+        if(summaryEl) summaryEl.innerText = `สด: ${sumCash.toLocaleString()} | โอน: ${sumTransfer.toLocaleString()}`;
+    }
+
+    function calcDiff() {
+        const sysCashEl = document.getElementById('closing_system_cash');
+        const actCashEl = document.getElementById('closing_actual_cash');
+        const diffEl = document.getElementById('closing_diff');
+        
+        if(!sysCashEl || !actCashEl || !diffEl) return;
+
+        const sysCash = parseFloat(sysCashEl.value || 0);
+        const actCash = parseFloat(actCashEl.value.replace(/,/g, '') || 0);
+        const diff = actCash - sysCash;
+        
+        diffEl.innerText = (diff > 0 ? '+' : '') + diff.toLocaleString(undefined, {minimumFractionDigits: 2});
+        
+        if (Math.abs(diff) < 0.01) {
+            diffEl.className = "text-2xl font-extrabold text-[#2E7D32] font-hand"; 
+        } else if (diff > 0) {
+            diffEl.className = "text-2xl font-extrabold text-[#1565C0] font-hand"; 
+        } else {
+            diffEl.className = "text-2xl font-extrabold text-[#C62828] font-hand"; 
+        }
+    }
+    
+    function previewDailyReport() {
+        const dateFilter = document.getElementById('acc_date_filter').value;
+        const actCash = parseFloat(document.getElementById('closing_actual_cash').value.replace(/,/g, '') || 0);
+        const sysCash = parseFloat(document.getElementById('closing_system_cash').value || 0);
+        const diff = actCash - sysCash;
+        const note = document.getElementById('closing_note').value;
+        
+        if (typeof printDailyReport === 'function' && window.currentDashboardData) {
+             printDailyReport(window.currentDashboardData, dateFilter, actCash, diff, note);
+        } else {
+             // If data missing, try fetch first
+             fetchAccountingOnly();
+             setTimeout(() => {
+                 if (window.currentDashboardData) {
+                    printDailyReport(window.currentDashboardData, dateFilter, actCash, diff, note);
+                 } else {
+                    showAlert("ข้อมูลยังไม่พร้อม กรุณาลองใหม่อีกครั้ง", "แจ้งเตือน");
+                 }
+             }, 1500);
+        }
+    }
+
+    function submitClosing() {
+        const dateFilter = document.getElementById('acc_date_filter').value;
+        const sysCash = parseFloat(document.getElementById('closing_system_cash').value || 0);
+        const actCash = parseFloat(document.getElementById('closing_actual_cash').value.replace(/,/g, '') || 0);
+        const diff = actCash - sysCash;
+        const note = document.getElementById('closing_note').value;
+        
+        // FIX: Safe Officer Name Access
+        let officerName = "System";
+        if (typeof currentAdmin !== 'undefined' && currentAdmin && currentAdmin.name) {
+            officerName = currentAdmin.name;
+        } else {
+            // Fallback try element if exists
+            const el = document.getElementById('dash_admin_name');
+            if (el) officerName = el.innerText;
+        }
+
+        const data = {
+            date: dateFilter,
+            systemTotal: document.getElementById('rpt_sum_total') ? document.getElementById('rpt_sum_total').innerText : "0",
+            systemCash: sysCash,
+            systemTransfer: 0, 
+            cashInDrawer: actCash,
+            diff: diff,
+            note: note,
+            officer: officerName
+        };
+        
+        if(!confirm("ยืนยันการปิดยอดประจำวัน? \nข้อมูลจะถูกบันทึกและไม่สามารถแก้ไขได้")) return;
+
+        const loader = document.getElementById('dashLoading');
+        if(loader) loader.classList.remove('hidden');
+        
+        google.script.run.withSuccessHandler((res) => {
+             if(loader) loader.classList.add('hidden');
+             if(res.success) {
+                 alert("บันทึกปิดยอดเรียบร้อย");
+                 if(typeof printDailyReport === 'function' && window.currentDashboardData) {
+                     printDailyReport(window.currentDashboardData, dateFilter, actCash, diff, note);
+                 }
+             } else {
+                 alert("เกิดข้อผิดพลาด: " + res.message);
+             }
+        }).saveDailyClosing(data);
+    }
+</script>

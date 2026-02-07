@@ -1,0 +1,330 @@
+<script>
+    /**
+     * Scripts_Daily_Actions
+     * ศูนย์รวม Logic ฝั่ง Client สำหรับ "รายวัน" ทั้งหมด
+     * (Includes: Modal Open, UI Toggle, Form Calc, Submission)
+     * FIX: calcTotalDaily now includes storage fee in total calculation
+     * FIX: Payment buttons disabled styling matches theme when paid
+     */
+
+    // --- 1. MODAL & UI LOGIC ---
+
+    function openDailyModal(stall, booking, storageInfo = null) {
+        document.getElementById('bookingFormDaily').reset();
+        
+        // Reset Buttons visibility
+        document.getElementById('d_btn_delete').classList.add('hidden');
+        document.getElementById('d_btn_print').classList.add('hidden');
+        document.getElementById('d_btn_preview').classList.add('hidden');
+        document.getElementById('d_btn_leave').classList.add('hidden');
+        document.getElementById('d_btn_move').classList.add('hidden');
+        document.getElementById('d_btn_storage').classList.remove('hidden');
+
+        // Set Date based on selection
+        const [y, m, d] = selectedDate.split('-').map(Number);
+        const dayOfWeek = new Date(y, m - 1, d).getDay();
+        let dayPrice = 0;
+        const stallInfo = stallsData.find(s => s.name === stall.name);
+        if(stallInfo) {
+            if(dayOfWeek === 3) dayPrice = stallInfo.priceWed;
+            else if(dayOfWeek === 6) dayPrice = stallInfo.priceSat;
+            else if(dayOfWeek === 0) dayPrice = stallInfo.priceSun;
+        }
+
+        document.getElementById('d_date').value = selectedDate;
+        
+        // Init Stalls
+        selectedStalls = [{name: stall.name, price: dayPrice}];
+        
+        // Admin Info
+        document.getElementById('d_admin_badge').innerText = currentAdmin ? currentAdmin.name : '-';
+        document.getElementById('d_header_date_right').innerText = formatThaiDateFull(selectedDate);
+        
+        // Setup Storage Button Action
+        const storageBtn = document.getElementById('d_btn_storage');
+        storageBtn.onclick = () => {
+            const name = document.getElementById('d_bookerName').value;
+            const id = document.getElementById('d_bookingId').value || (booking ? booking.id : "");
+            if (!id) { showAlert("ต้องทำการจองล็อคให้เรียบร้อยก่อน จึงจะสามารถฝากของได้", "แจ้งเตือน", true); return; }
+            openStorageModal(stall.name, name, id);
+        };
+
+        // --- Case: Existing Booking ---
+        if (booking) {
+             const bookingId = booking.id;
+             // Filter related bookings (multi-stall)
+             const related = bookingsData.filter(b => b.id === bookingId);
+             
+             const uniqueStalls = new Map();
+             related.forEach(b => uniqueStalls.set(b.stallName, {name: b.stallName, price: b.stallPrice}));
+             selectedStalls = Array.from(uniqueStalls.values());
+             
+             const primary = related[0];
+             document.getElementById('d_bookingId').value = bookingId;
+             document.getElementById('d_bookerName').value = primary.bookerName;
+             document.getElementById('d_product').value = primary.product;
+             document.getElementById('d_elecUnit').value = primary.elecUnit || 0;
+             document.getElementById('d_note').value = primary.note;
+             document.getElementById('d_storageFee').value = parseFloat(primary.storageFee || 0);
+
+             const totalPaid = related.reduce((sum, b) => sum + parseFloat(b.paidAmount || 0), 0);
+             document.getElementById('d_paidAmount').value = (totalPaid > 0) ? totalPaid : '';
+             
+             const isPaid = (primary.status === "ชำระแล้ว");
+
+             // Set Payment Method value first
+             if (isPaid && primary.paymentMethod) {
+                 document.getElementById('d_paymentMethod').value = primary.paymentMethod;
+             } else {
+                 document.getElementById('d_paymentMethod').value = '';
+             }
+             
+             // Ensure buttons are active based on amount initially
+             checkPaymentAmountDaily();
+
+             if (isPaid) {
+                 // Buttons for Paid state
+                 document.getElementById('d_btn_print').classList.remove('hidden');
+                 document.getElementById('d_btn_preview').classList.remove('hidden');
+                 document.getElementById('d_btn_move').classList.remove('hidden');
+                 document.getElementById('d_btn_leave').classList.remove('hidden');
+                 setDailyReadOnly(true); 
+             } else {
+                 // Buttons for Unpaid state
+                 if(currentAdmin) document.getElementById('d_btn_delete').classList.remove('hidden');
+                 document.getElementById('d_btn_move').classList.remove('hidden'); 
+                 setDailyReadOnly(false);
+             }
+        } 
+        // --- Case: New Booking ---
+        else {
+            document.getElementById('d_bookingId').value = "";
+            document.getElementById('d_elecUnit').value = 0;
+            document.getElementById('d_storageFee').value = 0;
+            document.getElementById('d_paidAmount').value = "";
+            document.getElementById('d_paymentMethod').value = '';
+            
+            setDailyReadOnly(false);
+            
+            if (storageInfo) {
+                document.getElementById('d_bookerName').value = storageInfo.ownerName;
+                document.getElementById('d_note').value = "ขายคืนเจ้าของฝาก: " + (storageInfo.note || "");
+            }
+        }
+        
+        // Render Tags
+        if(typeof renderStallTagsDaily === 'function') renderStallTagsDaily();
+        
+        calcTotalDaily();
+        showModal('bookingModalDaily');
+    }
+
+    function closeModalDaily() { 
+        hideModal('bookingModalDaily'); 
+        // Force hide dropdown when closing modal
+        const dropdown = document.getElementById('addStallDropdown');
+        if(dropdown) {
+            dropdown.classList.add('hidden');
+            dropdown.style.display = 'none';
+        }
+    }
+
+    function setDailyReadOnly(isReadOnly) {
+        // Disable Inputs
+        const ids = ['d_elecUnit', 'd_storageFee', 'd_paidAmount'];
+        ids.forEach(id => {
+             const el = document.getElementById(id);
+             if(el) {
+                 el.disabled = isReadOnly;
+                 if(isReadOnly) el.classList.add('bg-gray-100', 'cursor-not-allowed');
+                 else el.classList.remove('bg-gray-100', 'cursor-not-allowed');
+             }
+        });
+        
+        // Explicitly enable note if ReadOnly, or follow normal flow
+        const noteEl = document.getElementById('d_note');
+        if(noteEl) {
+             noteEl.disabled = false;
+             noteEl.classList.remove('bg-gray-100', 'cursor-not-allowed');
+        }
+        
+        // Hide/Show Add Stall Button
+        const btnAdd = document.getElementById('d_btnAddStall');
+        if(btnAdd) isReadOnly ? btnAdd.classList.add('hidden') : btnAdd.classList.remove('hidden');
+        
+        // Hide/Show Remove 'x' Buttons in Stall List
+        const removeBtns = document.querySelectorAll('.btn-remove-stall');
+        removeBtns.forEach(btn => {
+            if(isReadOnly) btn.classList.add('hidden');
+            else btn.classList.remove('hidden');
+        });
+        
+        // FIX: Payment Method Buttons Styling for ReadOnly (Theme Color for Selected)
+        const btnCash = document.getElementById('d_btn_cash');
+        const btnTransfer = document.getElementById('d_btn_transfer');
+        const currentMethod = document.getElementById('d_paymentMethod').value;
+        
+        if (isReadOnly) {
+             // Disable both buttons
+             if(btnCash) btnCash.disabled = true;
+             if(btnTransfer) btnTransfer.disabled = true;
+
+             // Apply Style: Selected = Theme Blue, Unselected = Gray
+             if (currentMethod === 'Cash') {
+                 // Selected: Theme Blue (bg-blue-600)
+                 btnCash.className = "flex-1 border border-blue-600 bg-blue-600 text-white text-xs font-bold rounded opacity-100 cursor-not-allowed shadow-none"; 
+                 // Unselected: Gray/Ghost
+                 btnTransfer.className = "flex-1 border border-gray-300 bg-gray-100 text-gray-400 text-xs font-bold rounded opacity-100 cursor-not-allowed"; 
+             } else if (currentMethod === 'Transfer') {
+                 // Selected: Theme Blue (bg-blue-600)
+                 btnTransfer.className = "flex-1 border border-blue-600 bg-blue-600 text-white text-xs font-bold rounded opacity-100 cursor-not-allowed shadow-none"; 
+                 // Unselected: Gray/Ghost
+                 btnCash.className = "flex-1 border border-gray-300 bg-gray-100 text-gray-400 text-xs font-bold rounded opacity-100 cursor-not-allowed"; 
+             } else {
+                 // No method selected
+                 btnCash.className = btnTransfer.className = "flex-1 border border-gray-300 bg-gray-100 text-gray-400 text-xs font-bold rounded opacity-100 cursor-not-allowed";
+             }
+        } else {
+             // If NOT read only, normal evaluation
+             checkPaymentAmountDaily();
+        }
+    }
+
+    // --- 2. FORM INTERACTION LOGIC ---
+
+    function selectPaymentDaily(method) {
+        const btnCash = document.getElementById('d_btn_cash');
+        const btnTransfer = document.getElementById('d_btn_transfer');
+        const input = document.getElementById('d_paymentMethod');
+        
+        if (input) input.value = method || "";
+
+        // Standard Active/Inactive Classes (When Not Disabled)
+        const baseClass = "flex-1 border rounded text-xs font-bold transition-all h-full";
+        const activeClass = "bg-blue-600 text-white border-blue-600 shadow-md transform scale-105";
+        const inactiveClass = "bg-white text-gray-700 border-gray-300 hover:bg-gray-50";
+
+        // Disabled Classes (When amount is 0, wait for input)
+        const disabledClass = "opacity-50 cursor-not-allowed bg-gray-100 text-gray-400 border-gray-200";
+
+        // Check if buttons are disabled (e.g. no amount entered)
+        if (btnCash.disabled) {
+            btnCash.className = `${baseClass} ${disabledClass}`;
+            btnTransfer.className = `${baseClass} ${disabledClass}`;
+        } else {
+            if (btnCash) btnCash.className = `${baseClass} ${method === 'Cash' ? activeClass : inactiveClass}`;
+            if (btnTransfer) btnTransfer.className = `${baseClass} ${method === 'Transfer' ? activeClass : inactiveClass}`;
+        }
+    }
+
+    function checkPaymentAmountDaily() {
+        const paid = parseFloat(document.getElementById('d_paidAmount').value || 0);
+        const btnCash = document.getElementById('d_btn_cash');
+        const btnTransfer = document.getElementById('d_btn_transfer');
+        const currentMethod = document.getElementById('d_paymentMethod').value;
+        
+        // Check if main input is disabled (indicating ReadOnly state) - DO NOT override if ReadOnly
+        const isReadOnly = document.getElementById('d_paidAmount').disabled;
+        
+        if (!isReadOnly) {
+            if (paid > 0) {
+                btnCash.disabled = false;
+                btnTransfer.disabled = false;
+                // Re-apply style based on current selection
+                selectPaymentDaily(currentMethod);
+            } else {
+                btnCash.disabled = true;
+                btnTransfer.disabled = true;
+                document.getElementById('d_paymentMethod').value = ''; // Reset method if amount cleared
+                selectPaymentDaily('');
+            }
+        }
+    }
+
+    // --- 3. CALCULATION & SUBMISSION LOGIC ---
+
+    function calcTotalDaily() {
+        const elecUnitEl = document.getElementById('d_elecUnit');
+        const storageFeeEl = document.getElementById('d_storageFee');
+        
+        const elecUnit = parseFloat(elecUnitEl ? elecUnitEl.value : 0) || 0;
+        const storageFee = parseFloat(storageFeeEl ? storageFeeEl.value : 0) || 0;
+        
+        // Calculate
+        let totalStallPrice = selectedStalls.reduce((sum, s) => sum + parseFloat(s.price || 0), 0);
+        let totalElecCost = elecUnit * 10;
+        
+        // FIX: Include storageFee in Total Calculation for Daily Booking
+        let total = totalStallPrice + totalElecCost + storageFee; 
+
+        const totalPriceEl = document.getElementById('d_totalPrice');
+        if (totalPriceEl) totalPriceEl.innerText = total.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+
+    function submitBookingDailyEvent(e) {
+        e.preventDefault();
+        
+        // Validation: Payment
+        const paidAmount = parseFloat(document.getElementById('d_paidAmount').value || 0);
+        const paymentMethod = document.getElementById('d_paymentMethod').value;
+        const totalStr = document.getElementById('d_totalPrice').innerText.replace(/,/g, '');
+        const totalVal = parseFloat(totalStr);
+
+        if (paidAmount > 0 && paymentMethod === "") {
+            showAlert("กรุณาเลือกช่องทางการชำระเงิน (เงินสด/โอน)", "แจ้งเตือน", true);
+            return;
+        }
+
+        if (paidAmount > totalVal) {
+            showAlert(`ยอดชำระ (${paidAmount}) เกินยอดรวมที่ต้องจ่าย (${totalVal})`, "ข้อผิดพลาด", true);
+            return;
+        }
+
+        const elecUnit = document.getElementById('d_elecUnit').value;
+        const storageFee = document.getElementById('d_storageFee').value;
+        
+        const stallListJson = JSON.stringify(selectedStalls);
+
+        const formData = {
+            bookingId: document.getElementById('d_bookingId').value,
+            date: document.getElementById('d_date').value, 
+            stallName: selectedStalls[0]?.name || "",
+            stallListJson: stallListJson,
+            bookerName: document.getElementById('d_bookerName').value,
+            phone: document.getElementById('d_phone').value,
+            product: document.getElementById('d_product').value,
+            rentType: 'รายวัน',
+            elecUnit: elecUnit,
+            storageFee: storageFee,
+            stallPrice: selectedStalls[0]?.price || 0,
+            totalPrice: totalStr,
+            paidAmount: document.getElementById('d_paidAmount').value,
+            paymentMethod: paymentMethod,
+            note: document.getElementById('d_note').value,
+            selectedDaysJson: "[]",
+            customerType: "Standard" 
+        };
+
+        sendBookingData(formData);
+    }
+    
+    function deleteCurrentBookingDaily() {
+        const dateStr = document.getElementById('d_date').value;
+        const bookingId = document.getElementById('d_bookingId').value;
+        if (!bookingId) return;
+        
+        showConfirm("ยืนยันการลบข้อมูลนี้?", "ยืนยันการลบ", () => {
+            showLoader();
+            google.script.run.withSuccessHandler((res) => {
+                hideLoader();
+                if (res.success) {
+                    hideModal('bookingModalDaily');
+                    fetchData(true);
+                    showAlert(res.message, "สำเร็จ", false);
+                } else {
+                    showAlert(res.message, "ข้อผิดพลาด", true);
+                }
+            }).deleteBooking(dateStr, bookingId); 
+        });
+    }
+</script>

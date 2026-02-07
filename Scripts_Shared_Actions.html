@@ -1,0 +1,125 @@
+<script>
+    /**
+     * Scripts_Shared_Actions
+     * ฟังก์ชันกลางสำหรับ Router และ Server Communication
+     * FIX: Redirect Monthly Click to new View Modal
+     * FIX: Added Preview capability to Daily Booking Success Modal
+     * FIX: Guest Click Enabled -> openGuestModal
+     * FIX: Completely hide Daily Modal after success to restore scrolling
+     * Update: Handle Regular Monthly Customers (Treat as Daily in Modal)
+     */
+
+    window.currentClickedStallName = null; 
+
+    // --- MAIN ROUTER ---
+    function handleStallClick(stall, booking) {
+        window.currentClickedStallName = stall.name; 
+        
+        // FIX: Check Admin status
+        if (currentAdmin) {
+            try {
+                // Determine if this is a "Regular Monthly" customer (Pseudo-Daily)
+                // ตรวจสอบว่าเป็นลูกค้าประจำหรือไม่ (เช็คจาก Note เหมือนตอน render สี)
+                const isRegularMonthly = (booking && booking.type === "รายเดือน" && booking.note && booking.note.includes("[ลูกค้าประจำ]"));
+
+                // Only open Monthly View if it is Monthly AND NOT Regular
+                // ถ้าเป็นรายเดือนแท้ๆ ให้เปิดหน้า Monthly View
+                if (booking && booking.type === "รายเดือน" && !isRegularMonthly) {
+                    openMonthlyMapDetail(stall, booking);
+                } else {
+                    // Regular Monthly or Daily -> Open Daily Modal (เหมือนรายวันปกติ)
+                    if(typeof checkStorageConflict === 'function') {
+                        checkStorageConflict(stall.name, (storageInfo) => {
+                            openDailyModal(stall, booking, storageInfo);
+                        });
+                    } else {
+                        openDailyModal(stall, booking);
+                    }
+                }
+            } catch (e) {
+                console.error("Click Handler Error:", e);
+                openDailyModal(stall, booking); // Fallback
+            }
+        } else {
+            // FIX: Allow Guest to click and see details
+            if (typeof openGuestModal === 'function') {
+                openGuestModal(stall, booking);
+            }
+        }
+    }
+
+    // --- SHARED ACTIONS ---
+    function leaveCurrentBooking() {
+        const bookingId = document.getElementById('d_bookingId').value;
+        if (!bookingId) return;
+        showConfirm("ยืนยันการ 'ลา' ล็อคนี้?", "ยืนยันการลา", () => {
+            showLoader();
+            google.script.run.withSuccessHandler((res) => {
+                hideLoader();
+                if (res.success) {
+                    hideModal('bookingModalDaily');
+                    fetchData(true);
+                    showAlert(res.message, "สำเร็จ", false);
+                } else {
+                    showAlert(res.message, "ข้อผิดพลาด", true);
+                }
+            }).setBookingStatusLeave(bookingId);
+        });
+    }
+
+    // --- SERVER COMMUNICATION ---
+    function sendBookingData(formData) {
+        showLoader();
+        google.script.run
+            .withSuccessHandler((res) => {
+                hideLoader();
+                if (res.success) {
+                    // FIX: Completely reset Daily Modal state to ensure Body Scroll is restored
+                    const dailyModal = document.getElementById('bookingModalDaily');
+                    if (dailyModal) {
+                        dailyModal.style.display = 'none'; 
+                        dailyModal.classList.add('hidden'); // Important for scroll unlock check
+                        dailyModal.classList.add('opacity-0'); 
+                        dailyModal.classList.add('pointer-events-none');
+                    }
+                    
+                    hideModal('bookingModalMonthly');
+                    
+                    setTimeout(() => fetchData(true), 800); 
+
+                    // Check Payment for Print (Daily Only)
+                    const isPaid = (res.status === "ชำระแล้ว");
+                    const canPrint = (formData.rentType === 'รายวัน' && isPaid);
+                    
+                    // FIX: Pass callbacks for Print and Preview
+                    showBookingSuccess(
+                        res.message,
+                        canPrint, 
+                        () => { // On Print
+                            if (typeof printTicket === 'function') printTicket();
+                            hideModal('bookingSuccessModal');
+                            setTimeout(() => fetchData(true), 500); 
+                        },
+                        () => { // On Preview (New)
+                            if (typeof openDailyTicketPreview === 'function') openDailyTicketPreview();
+                            // Keep success modal open or let preview modal overlap
+                        },
+                        () => { fetchData(true); } // On Close
+                    );
+
+                    // Refresh Monthly List if open
+                    const monthlyModal = document.getElementById('monthlyManagementModal');
+                    if (monthlyModal && !monthlyModal.classList.contains('opacity-0')) {
+                        if(typeof fetchMonthlyBookings === 'function') fetchMonthlyBookings();
+                    }
+                } else {
+                    showAlert(res.message, "ข้อผิดพลาด", true);
+                }
+            })
+            .withFailureHandler((err) => {
+                hideLoader();
+                showAlert("การเชื่อมต่อล้มเหลว: " + err, "ข้อผิดพลาด", true);
+            })
+            .saveBooking(formData);
+    }
+</script>

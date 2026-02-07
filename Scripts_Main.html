@@ -1,0 +1,416 @@
+<script>
+    // --- MAIN CONTROLLER & LOGIC ---
+    // Update: Performance Optimization (Smart DOM Update & Reserved Space)
+    // Update: Dynamic Grid System (Sheet-Driven Map Dimensions)
+    // Update: Auto Day Cutoff based on Config
+    // Update: Replaced alerts with showAlert
+    // Update: Regular Monthly Customer Color Fix (Orange if unpaid)
+
+    // ประกาศตัวแปรมารอรับ URL
+    let globalDashboardUrl = null;
+
+    // สั่งให้ไปดึง URL ทันทีที่หน้าเว็บโหลดเสร็จ (ทำเงียบๆ หลังบ้าน)
+    document.addEventListener('DOMContentLoaded', function() {
+        google.script.run
+            .withSuccessHandler(function(url) {
+                // ได้ URL มาแล้ว เก็บใส่ตัวแปรไว้ เตรียมใช้งาน
+                // สำคัญ: ต้องเป็น 'Dashboard' ตัวใหญ่ตาม Code.gs
+                globalDashboardUrl = url + "?page=Dashboard";
+                console.log("Dashboard URL ready:", globalDashboardUrl);
+            })
+            .getScriptUrl();
+    });
+
+    let lastFetchId = 0;
+
+    window.onload = function() {
+        try {
+            // 1. Initialize Modals
+            const modals = ['bookingModal', 'guestModal', 'monthlyManagementModal', 'paymentActionModal', 'storageModal', 'storageManagementModal', 'utilityModal', 'moveBookingModal', 'ticketPreviewModal', 'customConfirmModal', 'customAlertModal', 'bookingSuccessModal', 'settingsModal', 'billPreviewModal'];
+            modals.forEach(id => {
+                const el = document.getElementById(id);
+                if(el) el.style.display = '';
+            });
+            
+            // 2. Body Scroll
+            document.body.style.overflowY = 'scroll';
+            
+            // 3. Load Config First (Async)
+            if(typeof fetchSystemConfig === 'function') {
+                fetchSystemConfig();
+            }
+
+            // 4. Check Session
+            if(typeof checkSession === 'function') {
+                checkSession(); 
+            } else {
+                console.warn("Session module missing");
+            }
+
+            // 5. Render Dates (Start the App)
+            if(typeof renderQuickDates === 'function') {
+                renderQuickDates(); 
+            } else {
+                console.error("renderQuickDates function not found!");
+                document.getElementById('grid-container').innerHTML = '<div class="p-4 text-red-500 text-center">Error: Script loading failed. Please refresh.</div>';
+            }
+            
+            // 6. Setup Global Event Listeners
+            setupGlobalListeners();
+
+            // 7. Start Auto Refresh
+            setInterval(() => {
+                const isModalOpen = document.body.classList.contains('modal-active');
+                if (!document.hidden && !isModalOpen) {
+                    fetchData(true);
+                }
+            }, 30000); 
+
+        } catch (e) {
+            console.error("Window Load Error:", e);
+            // Fallback for critical error
+            alert("เกิดข้อผิดพลาดในการโหลดหน้าเว็บ: " + e.message);
+        }
+    };
+
+    function setupGlobalListeners() {
+        document.addEventListener('click', function(event) {
+            const dropdown = document.getElementById('addStallDropdown');
+            const isBtn = event.target.closest('.btn-add-stall-dynamic') || event.target.id === 'btnAddStall';
+            const renewalDropdown = document.getElementById('renewalStallSearchDropdown');
+            const isRenewalBtn = event.target.closest('button[onclick^="openRenewalStallSearch"]');
+
+            if (dropdown && !dropdown.classList.contains('hidden')) {
+                if (!dropdown.contains(event.target) && !isBtn) {
+                    dropdown.classList.add('hidden');
+                }
+            }
+
+            if (renewalDropdown && !renewalDropdown.classList.contains('hidden')) {
+                if (!renewalDropdown.contains(event.target) && !isRenewalBtn) {
+                    renewalDropdown.classList.add('hidden');
+                }
+            }
+        });
+
+        document.addEventListener('click', () => { if(typeof currentAdmin !== 'undefined' && currentAdmin && typeof updateSessionActivity === 'function') updateSessionActivity(); });
+        document.addEventListener('keypress', () => { if(typeof currentAdmin !== 'undefined' && currentAdmin && typeof updateSessionActivity === 'function') updateSessionActivity(); });
+    }
+
+    function shiftDates(direction) {
+        if(typeof dateOffsetCounter === 'undefined') dateOffsetCounter = 0;
+        dateOffsetCounter += direction;
+        if(dateOffsetCounter < 0) dateOffsetCounter = 0; 
+        renderQuickDates(true); 
+    }
+
+    function fetchData(isSilent = false) {
+        const currentFetchId = ++lastFetchId;
+
+        if (!isSilent) {
+            const grid = document.getElementById('grid-container');
+            if (grid) {
+                let loader = grid.querySelector('.grid-loading-overlay');
+                if (!loader) {
+                    loader = document.createElement('div');
+                    loader.className = 'grid-loading-overlay';
+                    loader.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-3xl text-blue-500"></i>';
+                    grid.appendChild(loader);
+                } else {
+                    loader.classList.remove('hidden');
+                    loader.style.opacity = '1';
+                }
+            }
+        }
+        
+        google.script.run
+            .withSuccessHandler((data) => {
+                if (currentFetchId === lastFetchId) {
+                    renderGrid(data);
+                }
+            })
+            .withFailureHandler((error) => {
+                if (currentFetchId === lastFetchId) {
+                    const grid = document.getElementById('grid-container');
+                    if(grid) {
+                         const loader = grid.querySelector('.grid-loading-overlay');
+                         if(loader) loader.remove();
+                         grid.innerHTML = `<div class="absolute inset-0 flex flex-col items-center justify-center text-red-500">Error: ${error.message}</div>`;
+                    }
+                }
+            })
+            .getMapData(selectedDate);
+    }
+
+    function confirmClearCache() {
+        showConfirm("ต้องการล้าง Cache เพื่อดึงข้อมูลผังตลาดล่าสุดจาก Sheet หรือไม่?", "ยืนยันการอัปเดต", () => {
+            showLoader();
+            google.script.run
+                .withSuccessHandler((res) => {
+                    hideLoader();
+                    if(res.success) {
+                        showAlert(res.message, "สำเร็จ", false);
+                        fetchData(true); 
+                    } else {
+                        showAlert(res.message, "ข้อผิดพลาด", true);
+                    }
+                })
+                .withFailureHandler((err) => {
+                    hideLoader();
+                    showAlert("Error: " + err, "ข้อผิดพลาด", true);
+                })
+                .clearSystemCache();
+        });
+    }
+
+    function renderGrid(data) {
+        stallsData = (data && data.stalls) ? data.stalls : [];
+        bookingsData = (data && data.bookings) ? data.bookings : [];
+        
+        if (data.storageMap) {
+            if(typeof globalStorageMap !== 'undefined') {
+                globalStorageMap = data.storageMap;
+            } else {
+                window.globalStorageMap = data.storageMap;
+            }
+        }
+        
+        const grid = document.getElementById('grid-container');
+        if (!grid) return;
+        
+        const loader = grid.querySelector('.grid-loading-overlay');
+        if(loader) loader.remove();
+
+        if (!stallsData || stallsData.length === 0) { 
+            grid.innerHTML = '<div class="absolute inset-0 flex items-center justify-center text-gray-500">ไม่พบข้อมูลผังตลาด</div>'; 
+            return; 
+        }
+        
+        let maxRow = 26; 
+        let maxCol = 20; 
+
+        stallsData.forEach(s => {
+            const r = parseInt(s.row) || 0;
+            const c = parseInt(s.col) || 0;
+            if (r > maxRow) maxRow = r;
+            if (c > maxCol) maxCol = c;
+        });
+
+        grid.style.gridTemplateColumns = `repeat(${maxCol}, minmax(45px, 1fr))`;
+
+        const bookingMap = {};
+        bookingsData.forEach(b => bookingMap[b.stallName] = b);
+        
+        const [y, m, d] = selectedDate.split('-').map(Number);
+        const dateObj = new Date(y, m - 1, d);
+        const dayOfWeek = dateObj.getDay();
+        
+        let priceKey = 'priceWed';
+        if (dayOfWeek === 6) priceKey = 'priceSat';
+        if (dayOfWeek === 0) priceKey = 'priceSun';
+        
+        const fragment = document.createDocumentFragment();
+
+        for (let r=1; r<=maxRow; r++) {
+            for (let c=1; c<=maxCol; c++) {
+                const cellId = `stall-${r}-${c}`;
+                const stall = stallsData.find(s => parseInt(s.row) == r && parseInt(s.col) == c);
+                
+                let cell = document.getElementById(cellId);
+                let isUpdate = (cell !== null);
+
+                if (!cell) {
+                    cell = document.createElement('div'); 
+                    cell.id = cellId; 
+                    cell.style.gridRow = r; 
+                    cell.style.gridColumn = c; 
+                }
+                
+                let baseClassName = 'stall-box rounded text-center shadow-sm relative';
+                let finalClassName = baseClassName;
+                let contentHtml = "";
+                
+                if (stall) {
+                    const booking = bookingMap[stall.name];
+                    const storage = (typeof globalStorageMap !== 'undefined') ? globalStorageMap[stall.name] : null;
+                    const price = stall[priceKey];
+                    cell.dataset.name = stall.name;
+                    
+                    contentHtml = `<span class="text-sm font-bold leading-none">${stall.name}</span>`;
+                    let bgClass = "bg-gray-200";
+                    let forcedPurple = false;
+                    
+                    // FIX: Check if Regular Monthly (should behave like daily unpaid - orange)
+                    const isRegularMonthly = (booking && booking.type === "รายเดือน" && booking.note && booking.note.includes("[ลูกค้าประจำ]"));
+
+                    if (booking && booking.type === "รายเดือน" && booking.product && booking.product.trim() !== "" && !isRegularMonthly) { 
+                        bgClass = "bg-monthly"; 
+                        contentHtml += `<div class="text-[10px] mt-0.5 truncate px-1 w-full bg-white bg-opacity-20 rounded font-normal text-white">${booking.product}</div>`; 
+                        forcedPurple = true; 
+                    }
+                    
+                    if (!forcedPurple) {
+                        if (stall.type === "ทางเดิน") { bgClass = "bg-walkway"; contentHtml = ""; }
+                        else if (stall.type === "อื่นๆ") { bgClass = "bg-other"; contentHtml = ""; }
+                        else if (stall.type === "รายเดือน") { bgClass = "bg-monthly"; contentHtml += `<div class="text-[10px] mt-0.5 text-white">รายเดือน</div>`; } 
+                        else {
+                            const isFood = stall.type.includes("อาหาร");
+                            if (booking) {
+                                if (booking.status === "ชำระแล้ว" || booking.status === "ไม่ว่าง") { 
+                                    bgClass = isFood ? "bg-food-occupied" : "bg-cloth-occupied"; 
+                                    contentHtml += `<div class="text-[10px] mt-0.5 truncate px-1 w-full bg-white bg-opacity-20 rounded font-normal">${booking.product}</div>`; 
+                                } else { 
+                                    bgClass = isFood ? "bg-food-unpaid" : "bg-cloth-unpaid"; 
+                                    contentHtml += `<div class="text-[10px] mt-0.5 font-normal">ค้างชำระ</div>`; 
+                                }
+                            } else { 
+                                bgClass = isFood ? "bg-food-free" : "bg-cloth-free"; 
+                                contentHtml += `<div class="text-[10px] mt-0.5 font-normal">${price || '-'}.-</div>`; 
+                            }
+                        }
+                    }
+                    
+                    if (storage) {
+                        contentHtml += `<div class="absolute -top-1 -right-1 bg-white rounded-full p-0.5 shadow border border-gray-300 z-20 text-[10px] cursor-help" title="ฝากของ: ${storage.ownerName}">📦</div>`;
+                    }
+
+                    finalClassName = `${baseClassName} ${bgClass}`;
+                    
+                    if (stall.type !== "ทางเดิน" && stall.type !== "อื่นๆ") { 
+                        finalClassName += ' clickable'; 
+                        cell.onclick = () => {
+                            if(typeof handleStallClick === 'function') handleStallClick(stall, booking);
+                        };
+                    } else { 
+                        finalClassName += ' non-clickable'; 
+                        cell.onclick = null; 
+                    }
+                    
+                    cell.style.visibility = 'visible';
+                } else { 
+                    cell.style.visibility = 'hidden'; 
+                }
+                
+                if (cell.className !== finalClassName) cell.className = finalClassName;
+                if (cell.innerHTML !== contentHtml) cell.innerHTML = contentHtml;
+
+                if (!isUpdate) {
+                    fragment.appendChild(cell);
+                }
+            }
+        }
+
+        if (fragment.childElementCount > 0) {
+            grid.appendChild(fragment);
+        }
+    }
+
+    function renderQuickDates(preserveSelection = false) {
+        const container = document.getElementById('quick-dates');
+        if (!container) return;
+        
+        container.innerHTML = '';
+        const marketDays = [0, 3, 6]; 
+        let count = 0; 
+        
+        // --- FIX: Cutoff Time Logic ---
+        let d = new Date();
+        const now = new Date();
+        
+        // Parse Cutoff Config (Default 19:00)
+        let cutoffH = 19, cutoffM = 0;
+        if (typeof systemConfig !== 'undefined' && systemConfig.cutoffTime) {
+            const parts = systemConfig.cutoffTime.split(':');
+            cutoffH = parseInt(parts[0]);
+            cutoffM = parseInt(parts[1]);
+        }
+        
+        const currentH = now.getHours();
+        const currentM = now.getMinutes();
+        
+        // Compare Time: If now >= cutoff, start from tomorrow
+        if (currentH > cutoffH || (currentH === cutoffH && currentM >= cutoffM)) {
+            d.setDate(d.getDate() + 1);
+        }
+        // ------------------------------
+
+        let addedDates = new Set();
+        let isFirst = true;
+        let loopLimit = 0;
+        
+        while (count < 3 && loopLimit < 100) {
+            loopLimit++;
+            if (marketDays.includes(d.getDay())) {
+                if (typeof dateOffsetCounter === 'undefined') dateOffsetCounter = 0;
+                
+                if (typeof foundMarketDays === 'undefined') var foundMarketDays = 0; 
+                
+                if (foundMarketDays >= dateOffsetCounter) {
+                    const offset = d.getTimezoneOffset() * 60000;
+                    const localDate = new Date(d.getTime() - offset);
+                    const dateStr = localDate.toISOString().split('T')[0];
+                    
+                    if(!addedDates.has(dateStr)) {
+                        const dayWeek = d.getDay();
+                        const dayName = d.toLocaleDateString('th-TH', { weekday: 'long' });
+                        const fullDate = d.toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+                        
+                        if (isFirst && !preserveSelection) { 
+                            selectedDate = dateStr; 
+                            const dateInput = document.getElementById('selectDate');
+                            if (dateInput) dateInput.value = dateStr; 
+                            isFirst = false; 
+                            if(typeof fetchData === 'function') fetchData(); 
+                        }
+                        if (preserveSelection && isFirst) { isFirst = false; }
+                        
+                        const isActive = (dateStr === selectedDate);
+                        let btnClass = "";
+                        let iconHtml = "";
+                        let baseClass = "group flex items-center space-x-2 px-4 py-1.5 rounded-full border transition-all duration-200 min-w-fit shadow-sm";
+                        
+                        if (dayWeek === 3) { iconHtml = '<i class="fa-solid fa-leaf"></i>'; btnClass = isActive ? "bg-green-600 border-green-700 text-white shadow-md scale-105 font-bold z-10" : "bg-green-50 border-green-200 text-green-700 hover:bg-green-100 opacity-80 hover:opacity-100"; } 
+                        else if (dayWeek === 6) { iconHtml = '<i class="fa-solid fa-star"></i>'; btnClass = isActive ? "bg-purple-600 border-purple-700 text-white shadow-md scale-105 font-bold z-10" : "bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100 opacity-80 hover:opacity-100"; } 
+                        else if (dayWeek === 0) { iconHtml = '<i class="fa-solid fa-sun"></i>'; btnClass = isActive ? "bg-red-600 border-red-700 text-white shadow-md scale-105 font-bold z-10" : "bg-red-50 border-red-200 text-red-700 hover:bg-red-100 opacity-80 hover:opacity-100"; }
+                        
+                        const btn = document.createElement('button');
+                        btn.className = `${baseClass} ${btnClass}`;
+                        btn.innerHTML = `<span class="text-sm transition-transform duration-300 ${isActive ? '' : 'group-hover:scale-110'}">${iconHtml}</span><span class="text-xs font-medium">${dayName} ${fullDate}</span>`;
+                        const currentStr = dateStr;
+                        btn.onclick = () => { 
+                            selectedDate = currentStr; 
+                            const dateInput = document.getElementById('selectDate');
+                            if (dateInput) dateInput.value = currentStr; 
+                            if(typeof fetchData === 'function') fetchData(); 
+                            renderQuickDates(true); 
+                        };
+                        container.appendChild(btn);
+                        addedDates.add(dateStr);
+                        count++;
+                    }
+                }
+                foundMarketDays++;
+            }
+            d.setDate(d.getDate() + 1);
+        }
+    }
+
+    function openDashboardModal() {
+        // กรณีที่ 1: เตรียม URL เสร็จแล้ว (ปกติจะเป็นเคสนี้ เพราะเราดึงมารอตั้งแต่เริ่ม)
+        if (globalDashboardUrl) {
+            // เปิดทีเดียวจบ! Browser จะไม่ Block เพราะเกิดจากการคลิก และไม่มี Redirect
+            window.open(globalDashboardUrl, '_blank');
+        } 
+        // กรณีที่ 2: (กันเหนียว) ถ้าเน็ตช้าจัดๆ กดปุ่มก่อนที่ URL จะมา
+        else {
+            // ใช้มุกเดิมแก้ขัดไปก่อน
+            var newWindow = window.open('', '_blank');
+            newWindow.document.write('Loading...');
+            
+            google.script.run.withSuccessHandler(function(url) {
+                globalDashboardUrl = url + "?page=Dashboard";
+                newWindow.location.href = globalDashboardUrl;
+            }).getScriptUrl();
+        }
+    }
+</script>

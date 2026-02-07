@@ -1,0 +1,327 @@
+<script>
+    /**
+     * Scripts_Dashboard
+     * Client-side Logic for Vintage Dashboard
+     * Updated: Toggle date filter & Null Safety Checks
+     * Update: Added Debt Collection Handler (Real-time Fetch from Server)
+     * Update: Auto-fetch System Config on Load
+     * Update: Display Debt Risk Percentage, Paid Percentage & Breakdown
+     * Update: Hardcoded Debt Message Template (Instant Copy)
+     * Update: Fixed Height 700px (Show 5 items) & Footer stick to absolute bottom
+     */
+    
+    let currentDashboardData = null;
+
+    // Load Config Immediately on Script Load
+    document.addEventListener('DOMContentLoaded', () => {
+        if (typeof fetchSystemConfig === 'function') {
+            console.log("Pre-loading System Config...");
+            fetchSystemConfig();
+        }
+    });
+
+    function fetchDashboardData() {
+        const loader = document.getElementById('dashLoading');
+        if(loader) loader.classList.remove('hidden');
+        
+        const dateFilter = document.getElementById('dash_date_filter').value;
+
+        google.script.run.withSuccessHandler((res) => {
+            if(loader) loader.classList.add('hidden');
+            if (res.success) {
+                currentDashboardData = res.data;
+                renderVintageDashboard(res.data);
+            } else {
+                showAlert(res.message, "Error", true);
+            }
+        }).withFailureHandler((err) => {
+            if(loader) loader.classList.add('hidden');
+            showAlert("Fetch Failed: " + err, "Error", true);
+        }).getDashboardData(dateFilter);
+    }
+
+    function renderVintageDashboard(data) {
+        // Safe Checks
+        if (!data) return;
+        
+        const stats = data.stats || { occupied:0, totalStalls:1, dailyCount:0, monthlyCount:0, foodCount:0, clothesCount:0 };
+        const prev = data.prevStats || { totalIncome:0, occupied:0 };
+        const analytics = data.analytics || { insights:[], primeCustomers:[], debtRisks:[], forecast:0 };
+        const summary = (data.accounting && data.accounting.summary) ? data.accounting.summary : { totalIncome:0, totalExpense:0, netProfit:0 };
+
+        // 1. Render Key Metrics
+        renderMetricCard('stat_revenue', 'trend_revenue', summary.totalIncome, prev.totalIncome, 'บ.');
+        renderMetricCard('stat_occupancy', 'trend_occupancy', stats.occupied, prev.occupied, 'ล็อค', true);
+        
+        // Occupancy Bar
+        const occPercent = stats.totalStalls > 0 ? (stats.occupied / stats.totalStalls) * 100 : 0;
+        const barEl = document.getElementById('bar_occupancy');
+        const statEl = document.getElementById('stat_occupancy');
+        if(barEl) barEl.style.width = `${occPercent}%`;
+        if(statEl) statEl.innerText = `${stats.occupied} / ${stats.totalStalls}`;
+        
+        // Profit & Forecast
+        const profitEl = document.getElementById('stat_profit');
+        const forecastEl = document.getElementById('stat_forecast');
+        if(profitEl) profitEl.innerText = summary.netProfit.toLocaleString();
+        if(forecastEl) forecastEl.innerText = analytics.forecast.toLocaleString();
+
+        // 2. Render Insights
+        const insightsBox = document.getElementById('ai_insights_box');
+        if (insightsBox) {
+            if (analytics.insights && analytics.insights.length > 0) {
+                insightsBox.innerHTML = analytics.insights.map(txt => `<p class="flex items-start gap-2"><i class="fa-solid fa-caret-right mt-1 text-[#8B5A2B]"></i> <span>${txt}</span></p>`).join('');
+            } else {
+                insightsBox.innerHTML = `<p class="text-gray-400 italic">ไม่มีข้อมูลผิดปกติ</p>`;
+            }
+        }
+
+        // 3. Render Zoning Stacked Bar
+        const zoneContainer = document.getElementById('zone_bars_container');
+        if (zoneContainer) {
+            const maxVal = Math.max(stats.dailyCount, stats.monthlyCount, 1);
+            const dailyPercent = (stats.dailyCount / maxVal) * 100;
+            const monthlyPercent = (stats.monthlyCount / maxVal) * 100;
+            
+            // Detailed counts
+            const dFood = stats.dailyFoodCount || 0;
+            const dCloth = stats.dailyClothesCount || 0;
+            const mFood = stats.monthlyFoodCount || 0;
+            const mCloth = stats.monthlyClothesCount || 0;
+
+            zoneContainer.innerHTML = `
+                <div>
+                    <div class="flex justify-between text-xs font-bold text-gray-600 mb-1">
+                        <span>รายวัน (${stats.dailyCount})</span>
+                        <span class="text-[10px] text-gray-500">อาหาร ${dFood} | เสื้อผ้า ${dCloth}</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-4 overflow-hidden flex">
+                        <div class="bg-green-500 h-full" style="width: ${dailyPercent}%"></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="flex justify-between text-xs font-bold text-gray-600 mb-1">
+                        <span>รายเดือน (${stats.monthlyCount})</span>
+                        <span class="text-[10px] text-gray-500">อาหาร ${mFood} | เสื้อผ้า ${mCloth}</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-4 overflow-hidden flex">
+                        <div class="bg-purple-500 h-full" style="width: ${monthlyPercent}%"></div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 4. Render Prime Customers
+        const primeTable = document.getElementById('table_prime_customers');
+        if (primeTable) {
+            if (analytics.primeCustomers && analytics.primeCustomers.length > 0) {
+                primeTable.innerHTML = analytics.primeCustomers.map((c, i) => `
+                    <tr class="hover:bg-[#FFF8E1]">
+                        <td class="p-3 font-bold text-[#8B5A2B]">${i+1}</td>
+                        <td class="p-3">
+                            <div class="font-bold text-[#5D4037] text-xs">${c.name}</div>
+                            <div class="text-[10px] text-gray-500">ล็อค: ${c.stalls}</div>
+                        </td>
+                        <td class="p-3 text-right font-bold text-green-700">${c.totalPaid.toLocaleString()}</td>
+                    </tr>
+                `).join('');
+            } else {
+                primeTable.innerHTML = `<tr><td colspan="3" class="p-4 text-center text-gray-400 text-xs">ไม่มีข้อมูล</td></tr>`;
+            }
+        }
+
+        // 5. Render Debt Risks (Fixed Frame Height 700px & Sticky Footer at very bottom)
+        const riskContainer = document.getElementById('risk_list_container');
+        if (riskContainer) {
+            // FIX: Force fixed height 700px and adjust padding
+            const parentCard = riskContainer.parentElement;
+            if (parentCard) {
+                parentCard.classList.remove('min-h-[400px]');
+                // Remove existing padding class 'p-3' to control bottom padding
+                parentCard.classList.remove('p-3');
+                // Add specific padding: Side/Top=3, Bottom=0 to stick footer
+                parentCard.classList.add('pt-3', 'px-3', 'pb-0');
+                
+                // Height 700px to fit ~5 items comfortable + footer
+                parentCard.style.height = '700px'; 
+                parentCard.classList.add('flex', 'flex-col'); 
+            }
+
+            // List Container: Flex-1, scrollable, with some bottom margin before footer
+            riskContainer.className = "flex-1 overflow-y-auto custom-scrollbar pr-1 mb-2";
+
+            // Find or Create Footer Container
+            let footerContainer = document.getElementById('risk_summary_footer');
+            if (!footerContainer) {
+                footerContainer = document.createElement('div');
+                footerContainer.id = 'risk_summary_footer';
+                footerContainer.className = "shrink-0 mt-auto"; // Stick to bottom
+                if (parentCard) parentCard.appendChild(footerContainer);
+            }
+            
+            let riskHtml = '';
+            let riskCounts = { critical: 0, high: 0, medium: 0, low: 0 };
+
+            if (analytics.debtRisks && analytics.debtRisks.length > 0) {
+                riskHtml = analytics.debtRisks.map(r => {
+                    const riskPct = r.riskPercent || 0;
+                    const paidPct = r.paidPercent || 0;
+                    const breakdown = r.riskBreakdown || "";
+                    
+                    let riskColor = "bg-yellow-500";
+                    let riskBadgeClass = "bg-yellow-100 text-yellow-800 border-yellow-200";
+                    let riskLabel = "Low";
+                    
+                    if (riskPct > 90) {
+                         riskColor = "bg-purple-600";
+                         riskBadgeClass = "bg-purple-100 text-purple-800 border-purple-200 animate-pulse";
+                         riskLabel = "Critical";
+                         riskCounts.critical++;
+                    } else if (riskPct > 70) {
+                         riskColor = "bg-red-600";
+                         riskBadgeClass = "bg-red-100 text-red-800 border-red-200";
+                         riskLabel = "High";
+                         riskCounts.high++;
+                    } else if (riskPct > 40) {
+                         riskColor = "bg-orange-500";
+                         riskBadgeClass = "bg-orange-100 text-orange-800 border-orange-200";
+                         riskLabel = "Medium";
+                         riskCounts.medium++;
+                    } else {
+                        riskCounts.low++;
+                    }
+
+                    return `
+                    <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm mb-2 hover:border-red-200 transition-colors group">
+                        <div class="flex justify-between items-start mb-2">
+                            <div class="flex-1 min-w-0 mr-2">
+                                <div class="font-bold text-gray-800 text-xs truncate" title="${r.name}">${r.name}</div>
+                                <div class="text-[10px] text-gray-500 mt-0.5 flex items-center gap-1">
+                                    <span class="text-red-600 font-bold">฿${r.debt.toLocaleString()}</span>
+                                    <span class="w-px h-3 bg-gray-300"></span>
+                                    <span class="text-green-600">จ่ายแล้ว ${paidPct}%</span>
+                                </div>
+                            </div>
+                            <div class="text-right shrink-0">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold ${riskBadgeClass}">
+                                    ${riskLabel} ${riskPct}%
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-end gap-3">
+                            <div class="flex-1 pb-1">
+                                 <div class="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                                    <div class="${riskColor} h-full transition-all duration-500" style="width: ${riskPct}%"></div>
+                                 </div>
+                                 <div class="text-[8px] text-gray-400 mt-1 truncate opacity-70 group-hover:opacity-100 transition-opacity" title="${breakdown}">${breakdown}</div>
+                            </div>
+                            <button class="shrink-0 bg-white border border-gray-200 text-gray-600 hover:bg-green-50 hover:text-green-700 hover:border-green-200 px-3 py-1 rounded text-[10px] font-bold transition-all shadow-sm flex items-center gap-1 active:scale-95" 
+                                    onclick="handleDebtCollectionWithFetch('${r.name.replace(/'/g, "\\'")}', ${r.debt}, this)">
+                                <i class="fa-brands fa-line text-green-500 text-sm"></i> <span class="mt-0.5">ทวงถาม</span>
+                            </button>
+                        </div>
+                    </div>
+                `}).join('');
+            } else {
+                riskHtml = `<div class="text-center text-green-600 text-xs py-4"><i class="fa-solid fa-check-circle"></i> ไม่มีลูกหนี้เสี่ยงสูง</div>`;
+            }
+
+            // Update List Content
+            riskContainer.innerHTML = riskHtml;
+
+            // --- Risk Summary Footer (Stick to Bottom with Negative Margin trick to flush) ---
+            const summaryHtml = `
+                <div class="pt-3 pb-3 border-t-2 border-dashed border-red-200 bg-red-50/80 -mx-3 px-3 rounded-b-lg mt-auto">
+                    <h4 class="text-[11px] font-bold text-red-900 uppercase tracking-wider mb-2 text-center">สรุปภาพรวม & คำแนะนำ</h4>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="bg-white border border-purple-200 rounded p-2 text-center flex flex-col justify-center shadow-sm">
+                            <div class="text-[9px] font-bold text-purple-800">วิกฤต (Critical)</div>
+                            <div class="text-xl font-extrabold text-purple-900 leading-none my-1">${riskCounts.critical} <span class="text-[9px]">ราย</span></div>
+                            <div class="text-[9px] text-white font-bold bg-purple-600 rounded px-1 py-0.5 animate-pulse">🔥 ต้องทวงเดี๋ยวนี้!</div>
+                        </div>
+                        <div class="bg-white border border-red-200 rounded p-2 text-center flex flex-col justify-center shadow-sm">
+                            <div class="text-[9px] font-bold text-red-800">สูง (High)</div>
+                            <div class="text-xl font-extrabold text-red-900 leading-none my-1">${riskCounts.high} <span class="text-[9px]">ราย</span></div>
+                            <div class="text-[9px] text-white font-bold bg-red-600 rounded px-1 py-0.5">⚡ รีบติดตามด่วน</div>
+                        </div>
+                        <div class="bg-white border border-orange-200 rounded p-2 text-center flex flex-col justify-center shadow-sm">
+                            <div class="text-[9px] font-bold text-orange-800">ปานกลาง (Med)</div>
+                            <div class="text-xl font-extrabold text-orange-900 leading-none my-1">${riskCounts.medium} <span class="text-[9px]">ราย</span></div>
+                            <div class="text-[9px] text-orange-700 font-bold bg-orange-100 rounded px-1 py-0.5">💬 ทักไลน์เตือน</div>
+                        </div>
+                        <div class="bg-white border border-yellow-200 rounded p-2 text-center flex flex-col justify-center shadow-sm">
+                            <div class="text-[9px] font-bold text-yellow-800">ต่ำ (Low)</div>
+                            <div class="text-xl font-extrabold text-yellow-900 leading-none my-1">${riskCounts.low} <span class="text-[9px]">ราย</span></div>
+                            <div class="text-[9px] text-yellow-700 font-bold bg-yellow-100 rounded px-1 py-0.5">👀 รอดูสถานการณ์</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Update Footer Content
+            footerContainer.innerHTML = summaryHtml;
+        }
+
+        if(typeof renderAccountingUI === 'function' && data.accounting) {
+            renderAccountingUI(data.accounting, data.meta.queryDate);
+        }
+    }
+
+    function renderMetricCard(valId, trendId, current, prev, unit, isRatio=false) {
+        const valEl = document.getElementById(valId);
+        const trendEl = document.getElementById(trendId);
+        
+        if (valEl) valEl.innerText = isRatio ? current : (current || 0).toLocaleString();
+        
+        if (trendEl) {
+            const diff = (current || 0) - (prev || 0);
+            const pct = (prev > 0) ? (diff / prev) * 100 : 0;
+            const icon = diff >= 0 ? '<i class="fa-solid fa-arrow-trend-up"></i>' : '<i class="fa-solid fa-arrow-trend-down"></i>';
+            const colorClass = diff >= 0 ? 'text-green-700 bg-green-100' : 'text-red-700 bg-red-100';
+            
+            trendEl.innerHTML = `${icon} ${Math.abs(pct).toFixed(1)}%`;
+            trendEl.className = `text-[10px] font-bold px-2 py-0.5 rounded flex items-center gap-1 w-fit ${colorClass}`;
+        }
+    }
+
+    // --- DEBT COLLECTION FUNCTION (Hardcoded Instant Version) ---
+    function handleDebtCollectionWithFetch(customerName, amount, btnElement) {
+        // 1. Prepare Message (Fixed Template)
+        const message = `เรียน ร้าน ${customerName}
+ทางตลาดนัดลาดสวายวินเทจขอแจ้งยอดค้างชำระค่าล็อค
+จำนวน ${amount.toLocaleString()} บาท
+รบกวนชำระที่
+💚 ธนาคารกสิกรไทย
+🔢 เลขที่บัญชี : 204-1-25235-1
+🏢 ชื่อบัญชี : บจก. เดอะเบสพัฒนาและธุรกิจ
+เมื่อโอนแล้วรบกวนส่งสลิปเพื่อยืนยัน ขอบคุณครับ`;
+            
+        // 2. Copy to Clipboard
+        const textarea = document.createElement('textarea');
+        textarea.value = message;
+        textarea.style.position = 'fixed'; 
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        
+        try {
+            const successful = document.execCommand('copy');
+            document.body.removeChild(textarea);
+            
+            if (successful) {
+                showAlert("คัดลอกข้อความทวงหนี้แล้ว! กำลังเปิด LINE...", "สำเร็จ", false);
+                
+                // Open LINE URL Scheme
+                setTimeout(() => {
+                    window.open('line://', '_blank');
+                }, 1500);
+            } else {
+                showAlert("ไม่สามารถคัดลอกข้อความได้", "ข้อผิดพลาด", true);
+            }
+        } catch (err) {
+            document.body.removeChild(textarea);
+            showAlert("Browser ไม่รองรับการคัดลอกอัตโนมัติ", "ข้อผิดพลาด", true);
+        }
+    }
+</script>

@@ -1,0 +1,41 @@
+<script>
+    /**
+     * Scripts_Archive
+     * จัดการฟังก์ชัน Archive (ย้ายข้อมูลเก่าไปเก็บ)
+     * FIX: Replaced native alerts with custom showAlert/showConfirm
+     */
+    function confirmArchive() {
+        if(typeof showConfirm !== 'function') {
+            console.error("Error: UI module not loaded");
+            return;
+        }
+        
+        if (!currentAdmin) {
+            showAlert("กรุณาเข้าสู่ระบบก่อนใช้งาน", "แจ้งเตือน", true);
+            return;
+        }
+
+        showConfirm(
+            "ระบบจะดำเนินการกับข้อมูลที่ 'เก่ากว่าวันปัจจุบัน' ดังนี้:\n\n1. ข้อมูล 'รายวัน': ย้ายไปเก็บที่ชีท Archive\n2. ข้อมูล 'รายเดือน': ลบออกจากผังรายวัน (ข้อมูลหลักยังอยู่ในจัดการรายเดือน)\n\nต้องการดำเนินการต่อหรือไม่?", 
+            "⚠️ ยืนยันการเก็บข้อมูลเก่า", 
+            () => {
+                showLoader();
+                google.script.run
+                    .withSuccessHandler((res) => {
+                        hideLoader();
+                        if (res.success) {
+                            if(typeof fetchData === 'function') fetchData(true);
+                            showAlert("สำเร็จ: " + res.message, "การจัดเก็บเสร็จสิ้น", false);
+                        } else {
+                            showAlert("เกิดข้อผิดพลาด: " + res.message, "ข้อผิดพลาด", true);
+                        }
+                    })
+                    .withFailureHandler((err) => {
+                        hideLoader();
+                        showAlert("Error: " + err, "ข้อผิดพลาดระบบ", true);
+                    })
+                    .runArchiveProcess();
+            }
+        );
+    }
+</script>

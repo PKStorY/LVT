@@ -1,0 +1,64 @@
+<!-- Payment Action Modal -->
+<div id="paymentActionModal" style="display:none;" class="modal opacity-0 pointer-events-none fixed w-full h-full top-0 left-0 flex items-center justify-center z-[60]">
+    <div class="modal-overlay absolute w-full h-full bg-gray-900 opacity-50" onclick="closePaymentModal()"></div>
+    <div class="modal-container bg-white w-96 mx-auto rounded-xl shadow-lg z-50 p-6 overflow-y-auto max-h-[90vh]">
+        <h3 class="font-bold text-lg mb-4 text-center" id="paymentModalTitle">บันทึกการชำระเงิน</h3>
+        <input type="hidden" id="pay_bookingId">
+        <!-- New Hidden Input for Edit Mode -->
+        <input type="hidden" id="pay_paymentId">
+        
+        <!-- NEW: Date Picker -->
+        <div class="mb-4">
+            <label class="block text-xs font-bold text-gray-700 mb-1">วันที่ชำระเงิน</label>
+            <input type="date" id="pay_date" class="w-full border p-2 rounded text-center text-sm font-bold text-gray-700 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400">
+        </div>
+
+        <div class="mb-4">
+            <label class="block text-xs font-bold text-gray-700 mb-1">ยอดชำระ (บาท)</label>
+            <input type="number" id="pay_amount" class="w-full border p-2 rounded text-center text-xl font-bold text-green-600" placeholder="0.00">
+        </div>
+        <div class="mb-4">
+            <label class="block text-xs font-bold text-gray-700 mb-2">ช่องทางชำระเงิน</label>
+            <div class="flex gap-4">
+                <label class="flex items-center cursor-pointer">
+                    <input type="radio" name="pay_method" value="Cash" checked class="form-radio text-blue-600 h-4 w-4" onchange="toggleSlipInput()">
+                    <span class="ml-2 text-sm text-gray-700"><i class="fa-solid fa-money-bill text-green-500 mr-1"></i> เงินสด</span>
+                </label>
+                <label class="flex items-center cursor-pointer">
+                    <input type="radio" name="pay_method" value="Transfer" class="form-radio text-blue-600 h-4 w-4" onchange="toggleSlipInput()">
+                    <span class="ml-2 text-sm text-gray-700"><i class="fa-solid fa-mobile-screen text-blue-500 mr-1"></i> โอนจ่าย</span>
+                </label>
+            </div>
+        </div>
+        <div id="slipUploadSection" class="mb-4 hidden p-3 bg-gray-50 border border-gray-200 rounded-lg animate-bounce-in">
+            <label class="block text-xs font-bold text-blue-700 mb-1">แนบสลิปโอนเงิน (บังคับ)</label>
+            <input type="file" id="pay_slip" accept="image/*" class="w-full text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" onchange="previewSlip(this)">
+            <div id="slipPreviewContainer" class="mt-2 hidden text-center">
+                <p class="text-[10px] text-gray-400 mb-1">ตัวอย่างสลิป <span class="text-blue-500">(คลิกที่รูปเพื่อขยาย)</span></p>
+                <!-- FIX: Added click event and zoom cursor -->
+                <img id="slipPreview" class="max-h-48 mx-auto rounded shadow border border-gray-200 object-contain cursor-zoom-in hover:opacity-90 transition" onclick="viewFullSlip()">
+            </div>
+        </div>
+        <div class="mb-4">
+            <label class="block text-xs text-gray-500 mb-1">โน้ต</label>
+            <textarea id="pay_note" class="w-full border p-2 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-400" rows="2"></textarea>
+        </div>
+        <div class="flex gap-2">
+            <button onclick="closePaymentModal()" class="flex-1 py-2 bg-gray-100 rounded text-gray-600 text-sm font-bold hover:bg-gray-200 transition">ยกเลิก</button>
+            <button onclick="submitPayment()" class="flex-1 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm font-bold shadow transition">บันทึก</button>
+        </div>
+    </div>
+</div>
+
+<!-- FIX: Added Full Screen Image Viewer (Lightbox) -->
+<div id="slipLightbox" class="hidden fixed inset-0 bg-black bg-opacity-95 z-[200] flex items-center justify-center p-2 animate-fade-in" onclick="closeFullSlip()">
+    <div class="relative w-full h-full flex items-center justify-center">
+         <img id="slipLightboxImg" class="max-w-full max-h-full object-contain rounded-lg shadow-2xl transition-transform duration-300 transform scale-100">
+         <button class="absolute top-4 right-4 text-white bg-gray-800 bg-opacity-50 rounded-full w-10 h-10 flex items-center justify-center hover:bg-opacity-80 transition hover:bg-red-500" onclick="closeFullSlip()">
+            <i class="fa-solid fa-times text-lg"></i>
+         </button>
+         <div class="absolute bottom-4 left-0 w-full text-center text-white text-sm bg-black bg-opacity-50 py-1 pointer-events-none">
+             คลิกพื้นที่ว่างเพื่อปิด
+         </div>
+    </div>
+</div>

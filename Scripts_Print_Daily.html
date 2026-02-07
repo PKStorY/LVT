@@ -1,0 +1,131 @@
+<script>
+    /**
+     * Scripts_Print_Daily
+     * Logic for printing Daily tickets
+     */
+
+    function printTicket() {
+        try {
+            const data = prepareDailyTicketData();
+            const ticketHtml = generateDailyTicketHtml(data);
+
+            const ticketArea = getOrCreateTicketArea('ticket-area');
+            const monthlyArea = getOrCreateTicketArea('monthly-ticket-area');
+            
+            ticketArea.innerHTML = ticketHtml;
+            ticketArea.style.display = 'block';
+            monthlyArea.style.display = 'none';
+
+            setTimeout(function() {
+                window.print();
+                ticketArea.style.display = 'none';
+            }, 500);
+
+            silentSaveTicketPDF();
+        } catch (e) {
+            console.error(e);
+            showAlert("เกิดข้อผิดพลาดในการพิมพ์: " + e.message, "Error", true);
+        }
+    }
+
+    function openDailyTicketPreview() {
+        try {
+            const data = prepareDailyTicketData();
+            const html = generateDailyTicketHtml(data);
+            const container = document.getElementById('previewContentArea');
+            if(container) {
+                container.innerHTML = html;
+                document.getElementById('ticketPreviewModal').classList.remove('hidden');
+            }
+        } catch (e) {
+            console.error(e);
+            showAlert("เกิดข้อผิดพลาดในการแสดงตัวอย่าง: " + e.message, "Error", true);
+        }
+    }
+
+    function silentSaveTicketPDF() {
+        const dBookingId = document.getElementById('d_bookingId');
+        const bookingId = dBookingId ? dBookingId.value : `TEMP_${Date.now()}`;
+        
+        try {
+             const data = prepareDailyTicketData();
+             const html = generateDailyTicketHtml(data);
+             google.script.run.saveTicketToDrive(html, bookingId, "Day Ticket");
+        } catch (e) {
+            console.warn("Silent PDF save failed:", e);
+        }
+    }
+
+    function prepareDailyTicketData() {
+        const getVal = function(id) {
+            const el = document.getElementById(id);
+            return el ? el.value : "";
+        };
+        
+        const bookerName = getVal('d_bookerName');
+        const productName = getVal('d_product');
+        const tradeDateStr = getVal('d_date');
+        
+        const elecUnitEl = document.getElementById('d_elecUnit');
+        const elecUnit = parseFloat(elecUnitEl ? elecUnitEl.value : 0) || 0;
+        
+        const storageFeeEl = document.getElementById('d_storageFee');
+        const storageTotal = parseFloat(storageFeeEl ? storageFeeEl.value : 0) || 0;
+
+        const stallTotal = selectedStalls.reduce(function(sum, s) {
+            return sum + parseFloat(s.price || 0);
+        }, 0);
+
+        const elecTotal = elecUnit * 10;
+        const grandTotal = stallTotal + elecTotal + storageTotal;
+        const priceExVat = grandTotal / 1.07;
+        const vat = grandTotal - priceExVat;
+        
+        const paidAmount = parseFloat(getVal('d_paidAmount')) || 0;
+        const paymentMethodVal = getVal('d_paymentMethod');
+        const paymentMethodDisplay = (paymentMethodVal === 'Cash') ? 'เงินสด' : (paymentMethodVal === 'Transfer' ? 'โอนจ่าย' : '-');
+
+        const now = new Date();
+        const timestampStr = formatTicketDateTime(now);
+
+        let tradeDateDisplay = "-";
+        if (tradeDateStr) {
+            const parts = tradeDateStr.split('-');
+            const y = parseInt(parts[0]);
+            const m = parseInt(parts[1]) - 1;
+            const d = parseInt(parts[2]);
+            const tDate = new Date(y, m, d);
+            
+            const thaiDays = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+            const thaiMonthsFull = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+            
+            const tdDayName = thaiDays[tDate.getDay()];
+            const tdDay = tDate.getDate();
+            const tdMonth = thaiMonthsFull[tDate.getMonth()];
+            const tdYear = tDate.getFullYear() + 543;
+            tradeDateDisplay = `${tdDayName} ${tdDay} ${tdMonth} ${tdYear}`;
+        }
+
+        const officerName = getOfficerDisplay();
+        const stallNames = selectedStalls.map(function(s) { return s.name; }).join(", ");
+
+        return {
+            bookerName: bookerName, 
+            productName: productName, 
+            tradeDateStr: tradeDateStr, 
+            elecUnit: elecUnit,
+            stallNames: stallNames, 
+            stallTotal: stallTotal, 
+            elecTotal: elecTotal, 
+            grandTotal: grandTotal,
+            priceExVat: priceExVat, 
+            vat: vat, 
+            paidAmount: paidAmount, 
+            paymentMethodDisplay: paymentMethodDisplay,
+            timestampStr: timestampStr, 
+            tradeDateDisplay: tradeDateDisplay, 
+            officerName: officerName,
+            storageTotal: storageTotal
+        };
+    }
+</script>

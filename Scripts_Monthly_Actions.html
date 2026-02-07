@@ -1,0 +1,481 @@
+<script>
+    /**
+     * Scripts_Monthly_Actions
+     * ศูนย์รวม Logic ฝั่ง Client สำหรับ "รายเดือน"
+     * FIX: ปรับปรุง Logic สรุปราคา (รวมยอดทุกล็อคในบรรทัดเดียว)
+     * FIX: Disable Fields in Edit Mode
+     */
+
+    window.isMonthlyEditMode = false;
+
+    // --- 1. OPEN MODAL LOGIC ---
+
+    function openMonthlyMapDetail(stall, booking) {
+        document.getElementById('mv_bookingId').value = booking.id;
+        document.getElementById('mv_date').value = selectedDate;
+        
+        document.getElementById('mv_stallName').innerText = stall.name;
+        document.getElementById('mv_customer').innerText = booking.bookerName || '-';
+        document.getElementById('mv_product').innerText = booking.product || '-';
+        
+        const modal = document.getElementById('monthlyViewModal');
+        if(modal) {
+            modal.classList.remove('hidden');
+        }
+    }
+
+    function closeMonthlyViewModal() {
+        const modal = document.getElementById('monthlyViewModal');
+        if(modal) modal.classList.add('hidden');
+    }
+
+    function closeModalMonthly() { 
+        hideModal('bookingModalMonthly'); 
+    }
+
+    function startNewMonthlyBooking() {
+        if (!currentAdmin) return;
+
+        window.isMonthlyEditMode = false;
+
+        selectedStalls = [];
+        document.getElementById('bookingFormMonthly').reset();
+        document.getElementById('m_btn_delete').classList.add('hidden');
+        
+        document.getElementById('m_bookingId').value = "";
+        document.getElementById('m_date').value = selectedDate;
+        
+        const resetChk = document.getElementById('m_forceReset');
+        if (resetChk) resetChk.checked = true;
+
+        updateHeaderDateDisplayMonthly();
+        
+        document.getElementById('m_stallPriceDisplay').value = "0";
+        if(document.getElementById('m_totalPrice')) document.getElementById('m_totalPrice').innerText = "0.00";
+        document.getElementById('monthlyPriceSummary').innerHTML = "";
+        
+        document.getElementById('m_admin_badge').innerText = currentAdmin.name;
+
+        // Enable All Fields
+        setMonthlyInputsState(false);
+
+        renderStallTagsMonthly();
+
+        const bookingModal = document.getElementById('bookingModalMonthly');
+        if (bookingModal) bookingModal.style.zIndex = '60';
+        showModal('bookingModalMonthly');
+    }
+
+    function openMonthlyEditMode(item) {
+        loadMonthlyEditForm(item);
+    }
+
+    function loadMonthlyEditForm(item) {
+        window.isMonthlyEditMode = true;
+
+        document.getElementById('bookingFormMonthly').reset();
+        document.getElementById('m_btn_delete').classList.remove('hidden');
+        
+        const resetChk = document.getElementById('m_forceReset');
+        if (resetChk) resetChk.checked = false;
+        
+        document.getElementById('m_bookingId').value = item.id;
+        document.getElementById('m_bookerName').value = item.bookerName;
+
+        let phone = item.phone || "";
+        if (phone !== "-" && phone.length > 0 && phone.charAt(0) !== '0') phone = "0" + phone;
+        document.getElementById('m_phone').value = phone;
+
+        document.getElementById('m_product').value = item.product;
+        document.getElementById('m_elecUnit').value = item.elecUnit || 0;
+        document.getElementById('m_storageFee').value = item.storageFee || 0; 
+        
+        document.getElementById('m_note').value = item.note || "";
+
+        const radios = document.getElementsByName('m_customerType');
+        const type = item.customerType || "Standard";
+        for(let i=0; i<radios.length; i++) {
+            if(radios[i].value === type) radios[i].checked = true;
+        }
+
+        let localDate = selectedDate;
+        if(item.startDate) {
+            if (item.startDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                localDate = item.startDate;
+            } else {
+                 const startDate = new Date(item.startDate);
+                 localDate = new Date(startDate.getTime() - (startDate.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+            }
+        }
+        document.getElementById('m_date').value = localDate;
+
+        updateHeaderDateDisplayMonthly();
+
+        const selectedDaysStr = item.selectedDays || "";
+        const daysArr = [];
+        if (selectedDaysStr.includes("อาทิตย์")) daysArr.push(0);
+        if (selectedDaysStr.includes("พุธ")) daysArr.push(3);
+        if (selectedDaysStr.includes("เสาร์")) daysArr.push(6);
+
+        document.querySelectorAll('#monthlyOptions input[type="checkbox"]').forEach(cb => {
+            cb.checked = daysArr.includes(parseInt(cb.value));
+        });
+
+        selectedStalls = [];
+        if (item.stallDetails && item.stallDetails !== "" && item.stallDetails !== "undefined") {
+            try {
+                selectedStalls = JSON.parse(item.stallDetails);
+            } catch (e) {
+                if (item.stalls) {
+                    const names = item.stalls.split(',').map(s => s.trim());
+                    names.forEach(n => { selectedStalls.push({ name: n, price: 0, days: [...daysArr] }); });
+                }
+            }
+        } else if (item.stalls) {
+            const names = item.stalls.split(',').map(s => s.trim());
+            names.forEach(n => { selectedStalls.push({ name: n, price: 0, days: [...daysArr] }); });
+        }
+
+        renderStallTagsMonthly();
+        
+        if (type === 'VIP') {
+            document.getElementById('m_manualTotalInput').value = item.totalPrice; 
+        }
+        
+        handleCustomerTypeChangeMonthly();
+        calcTotalMonthly(); 
+        
+        document.getElementById('m_admin_badge').innerText = currentAdmin.name;
+
+        // Disable Fields for Edit Mode
+        setMonthlyInputsState(true);
+
+        const bookingModal = document.getElementById('bookingModalMonthly');
+        if (bookingModal) bookingModal.style.zIndex = '60';
+        showModal('bookingModalMonthly');
+    }
+
+    // FIX: Function to Disable/Enable Fields
+    function setMonthlyInputsState(isDisabled) {
+        document.getElementById('m_date').disabled = isDisabled;
+        document.getElementById('m_elecUnit').disabled = isDisabled;
+        
+        const radios = document.getElementsByName('m_customerType');
+        for(const r of radios) r.disabled = isDisabled;
+        
+        const checkboxes = document.querySelectorAll('#monthlyOptions input[type="checkbox"]');
+        for(const cb of checkboxes) cb.disabled = isDisabled;
+
+        // Add Stall Button & Remove Buttons handling
+        const addBtn = document.getElementById('m_btnAddStallMain');
+        if(addBtn) addBtn.style.display = isDisabled ? 'none' : 'inline-flex';
+        
+        // Remove buttons in tags handled in renderStallTagsMonthly via global flag check or CSS
+        // But better to handle here if possible, or re-render
+        // We will rely on re-rendering or CSS class injection
+        const container = document.getElementById('selectedStallsContainer_Monthly');
+        if (container) {
+            if (isDisabled) container.classList.add('pointer-events-none', 'opacity-80');
+            else container.classList.remove('pointer-events-none', 'opacity-80');
+        }
+    }
+
+    function updateHeaderDateDisplayMonthly() {
+        const dVal = document.getElementById('m_date').value;
+        if(dVal) {
+            const [y, m, d] = dVal.split('-').map(Number);
+            const thaiMonths = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+            document.getElementById('m_header_date_right').innerText = `เริ่ม: ${d} ${thaiMonths[m-1]} ${y+543}`;
+            const fullMonth = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+            document.getElementById('m_date_display_th').innerText = `รอบ: ${fullMonth[m-1]} ${y+543}`;
+        }
+    }
+
+    function handleCustomerTypeChangeMonthly() { 
+        const radios = document.getElementsByName('m_customerType');
+        let customerType = "Standard";
+        for (const r of radios) { if (r.checked) customerType = r.value; }
+
+        const summarySec = document.getElementById('monthlySummarySection');
+        const feesSec = document.getElementById('monthlyFeesSection');
+        const totalDisplay = document.getElementById('m_totalPriceDisplay');
+        const manualInputDiv = document.getElementById('m_manualTotalInputContainer');
+
+        if (customerType === 'VIP') {
+            if(summarySec) summarySec.classList.add('hidden'); 
+            if(totalDisplay) totalDisplay.classList.add('hidden');
+            if(manualInputDiv) manualInputDiv.classList.remove('hidden');
+        } else {
+            if(summarySec) summarySec.classList.remove('hidden');
+            if(feesSec) feesSec.classList.remove('hidden');
+            if(totalDisplay) totalDisplay.classList.remove('hidden');
+            if(manualInputDiv) manualInputDiv.classList.add('hidden');
+            
+            calcTotalMonthly(); 
+        }
+    }
+
+    function calcTotalMonthly() {
+        const radios = document.getElementsByName('m_customerType');
+        let customerType = "Standard";
+        for (const r of radios) { if (r.checked) customerType = r.value; }
+        if (customerType === 'VIP') return; 
+
+        const dVal = document.getElementById('m_date').value;
+        if (!dVal || selectedStalls.length === 0) {
+            document.getElementById('m_totalPrice').innerText = "0.00";
+            document.getElementById('monthlyPriceSummary').innerHTML = "";
+            return;
+        }
+
+        const elecUnit = parseFloat(document.getElementById('m_elecUnit').value || 0);
+        const storageFee = parseFloat(document.getElementById('m_storageFee').value || 0); 
+
+        const chk3 = document.getElementById('chk_day_3').checked;
+        const chk6 = document.getElementById('chk_day_6').checked;
+        const chk0 = document.getElementById('chk_day_0').checked;
+        
+        const activeDays = new Set();
+        if(chk3) activeDays.add(3);
+        if(chk6) activeDays.add(6);
+        if(chk0) activeDays.add(0);
+
+        const isFullPackage = (chk3 && chk6 && chk0);
+
+        const [y, m, d] = dVal.split('-').map(Number);
+        const year = y; const month = m-1;
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        const remainingDays = lastDay - d + 1; 
+        
+        const dayBreakdown = {
+            3: { label: "วันพุธ", colorClass: "text-green-700", totalPrice: 0, dayCount: 0, pricePerRound: 0 },
+            6: { label: "วันเสาร์", colorClass: "text-purple-700", totalPrice: 0, dayCount: 0, pricePerRound: 0 },
+            0: { label: "วันอาทิตย์", colorClass: "text-red-700", totalPrice: 0, dayCount: 0, pricePerRound: 0 }
+        };
+
+        const uniqueMarketDates = new Set();
+        
+        const periodDayCounts = { 3: 0, 6: 0, 0: 0 };
+        for (let i = 0; i < remainingDays; i++) {
+            const currentDay = new Date(year, month, d + i);
+            const dayIdx = currentDay.getDay();
+            if (activeDays.has(dayIdx)) { 
+                periodDayCounts[dayIdx]++;
+            }
+        }
+
+        // --- NEW LOGIC: Combine Prices of All Selected Stalls FIRST ---
+        // 1. Calculate Combined Price Per Day Type (Rate)
+        let combinedDailyRate = { 3: 0, 6: 0, 0: 0 };
+
+        selectedStalls.forEach(stall => {
+            const sData = stallsData.find(s => s.name === stall.name);
+            if (!sData) return;
+            
+            // Check if this stall is active for specific day?
+            // Assuming if Global Checkbox is checked, all selected stalls apply.
+            // If user selected checkboxes manually, `stall.days` holds the truth.
+            
+            // If Full Package -> Use Col H
+            if (isFullPackage) {
+                const rate = parseFloat(sData.priceMonth || 0);
+                if (stall.days.includes(3)) combinedDailyRate[3] += rate;
+                if (stall.days.includes(6)) combinedDailyRate[6] += rate;
+                if (stall.days.includes(0)) combinedDailyRate[0] += rate;
+            } else {
+                // Use Daily Prices
+                if (stall.days.includes(3)) combinedDailyRate[3] += parseFloat(sData.priceWed || 0);
+                if (stall.days.includes(6)) combinedDailyRate[6] += parseFloat(sData.priceSat || 0);
+                if (stall.days.includes(0)) combinedDailyRate[0] += parseFloat(sData.priceSun || 0);
+            }
+
+            // Track Unique Dates for Electricity (unchanged)
+            stall.days.forEach(dayIdx => {
+                if (activeDays.has(dayIdx)) {
+                    for (let i = 0; i < remainingDays; i++) {
+                        const currentDay = new Date(year, month, d + i);
+                        if (currentDay.getDay() === dayIdx) {
+                            uniqueMarketDates.add(currentDay.toISOString().split('T')[0]);
+                        }
+                    }
+                }
+            });
+        });
+
+        // 2. Calculate Total Price per Day Type
+        [3, 6, 0].forEach(dayIdx => {
+            if (periodDayCounts[dayIdx] > 0 && combinedDailyRate[dayIdx] > 0) {
+                dayBreakdown[dayIdx].totalPrice = combinedDailyRate[dayIdx] * periodDayCounts[dayIdx];
+                dayBreakdown[dayIdx].dayCount = periodDayCounts[dayIdx];
+                dayBreakdown[dayIdx].pricePerRound = combinedDailyRate[dayIdx]; // Combined Rate
+            }
+        });
+
+        // Generate HTML
+        let summaryHtml = "";
+        let totalStallAll = 0;
+
+        [3, 6, 0].forEach(idx => {
+            const info = dayBreakdown[idx];
+            // Show row if valid count and rate > 0
+            if (info.dayCount > 0 && info.pricePerRound > 0) {
+                summaryHtml += `
+                    <div class="flex justify-between items-center">
+                        <span class="${info.colorClass} font-bold">${info.label} (${info.pricePerRound.toLocaleString()} x ${info.dayCount} วัน)</span>
+                        <span class="font-bold text-gray-800">${info.totalPrice.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 2})}</span>
+                    </div>
+                `;
+                totalStallAll += info.totalPrice;
+            }
+        });
+
+        if (customerType === 'Regular') {
+            summaryHtml += `<div class="text-center text-gray-500 italic my-1">- ลูกค้าประจำ จ่ายรายวัน -</div>`;
+        }
+
+        summaryHtml += `<div class="border-t border-dashed border-gray-300 my-1.5"></div>`;
+        summaryHtml += `
+            <div class="flex justify-between items-center">
+                <span class="text-gray-600 font-bold">รวมค่าล็อคทั้งสิ้น</span>
+                <span class="font-bold text-gray-800">${totalStallAll.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 2})}</span>
+            </div>
+        `;
+
+        let totalElec = elecUnit * 10 * uniqueMarketDates.size;
+        if (totalElec > 0 || elecUnit > 0) {
+            summaryHtml += `
+                <div class="flex justify-between items-center text-yellow-700">
+                    <span>ค่าไฟ (${elecUnit} หน่วย x ${uniqueMarketDates.size} วัน)</span>
+                    <span class="font-bold">${totalElec.toLocaleString()}</span>
+                </div>
+            `;
+        }
+
+        if (storageFee > 0) {
+             summaryHtml += `
+                <div class="flex justify-between items-center text-orange-700">
+                    <span>ค่าฝากของ</span>
+                    <span class="font-bold">${storageFee.toLocaleString()}</span>
+                </div>
+            `;
+        }
+
+        const grandTotal = totalStallAll + totalElec + storageFee;
+
+        document.getElementById('monthlyPriceSummary').innerHTML = summaryHtml;
+        document.getElementById('m_totalPrice').innerText = grandTotal.toLocaleString(undefined, {minimumFractionDigits: 2});
+    }
+
+    function submitBookingMonthlyEvent(e) {
+        e.preventDefault();
+        
+        if (!currentAdmin) { showAlert("กรุณาเข้าสู่ระบบ", "แจ้งเตือน", true); return; }
+        
+        const bookingId = document.getElementById('m_bookingId').value;
+        
+        let customerType = "Standard";
+        const radios = document.getElementsByName('m_customerType');
+        for (const r of radios) { if (r.checked) customerType = r.value; }
+
+        let finalTotalPrice = 0;
+        if (customerType === 'VIP') {
+            const manualVal = document.getElementById('m_manualTotalInput').value;
+            finalTotalPrice = parseFloat(manualVal || 0);
+        } else {
+            const totalText = document.getElementById('m_totalPrice').innerText.replace(/,/g, '');
+            finalTotalPrice = parseFloat(totalText || 0);
+        }
+        
+        if (selectedStalls.length === 0) { showAlert("กรุณาเลือกล็อคอย่างน้อย 1 ล็อค", "ข้อมูลไม่ครบ", true); return; }
+        
+        const isForceReset = document.getElementById('m_forceReset').checked;
+        const checkboxes = document.querySelectorAll('#monthlyOptions input[type="checkbox"]:checked');
+        const selectedDays = Array.from(checkboxes).map(cb => parseInt(cb.value));
+
+        const stallListJson = JSON.stringify(selectedStalls);
+
+        // Payment defaults
+        const paidAmount = 0;
+        const paymentMethod = ""; 
+
+        const formData = {
+            bookingId: bookingId,
+            date: document.getElementById('m_date').value,
+            stallName: selectedStalls.map(s=>s.name).join(", "), 
+            stallListJson: stallListJson,
+            bookerName: document.getElementById('m_bookerName').value,
+            phone: document.getElementById('m_phone').value,
+            product: document.getElementById('m_product').value,
+            rentType: 'รายเดือน',
+            elecUnit: document.getElementById('m_elecUnit').value,
+            storageFee: document.getElementById('m_storageFee').value, 
+            stallPrice: selectedStalls[0]?.price || 0, 
+            totalPrice: finalTotalPrice.toString(),
+            paidAmount: paidAmount,
+            paymentMethod: paymentMethod,
+            note: document.getElementById('m_note').value,
+            selectedDaysJson: JSON.stringify(selectedDays),
+            customerType: customerType,
+            forceReset: isForceReset 
+        };
+
+        sendBookingData(formData);
+    }
+    
+    function deleteMonthlyDayEntry() {
+        const bookingId = document.getElementById('mv_bookingId').value;
+        const dateStr = document.getElementById('mv_date').value;
+        
+        if (!bookingId || !dateStr) return;
+
+        showConfirm(
+            `ยืนยันการ "คืนล็อค" ประจำวันที่ ${formatThaiDateShort(dateStr)}?\n(ข้อมูลสัญญาหลักและวันอื่นๆ จะยังคงอยู่)`, 
+            "คืนล็อครายวัน", 
+            () => {
+                showLoader();
+                google.script.run.withSuccessHandler((res) => {
+                    hideLoader();
+                    if (res.success) {
+                        closeMonthlyViewModal(); 
+                        fetchData(true); 
+                        showAlert(res.message, "สำเร็จ", false);
+                    } else {
+                        showAlert(res.message, "ข้อผิดพลาด", true);
+                    }
+                }).withFailureHandler((err) => {
+                    hideLoader();
+                    showAlert("Error: " + err, "ข้อผิดพลาด", true);
+                }).deleteBooking(dateStr, bookingId);
+            }
+        );
+    }
+
+    function deleteCurrentBookingMonthlyFull() {
+        let bookingId = document.getElementById('m_bookingId').value;
+        let isFromView = false;
+
+        if (!bookingId) {
+            bookingId = document.getElementById('mv_bookingId').value;
+            isFromView = true;
+        }
+
+        if (!bookingId) return;
+        
+        showConfirm("ยืนยันการลบข้อมูลนี้ทั้งหมด? (สัญญาหลัก + วันขายทั้งหมด)", "ลบสัญญาทั้งหมด", () => {
+            showLoader();
+            google.script.run.withSuccessHandler((res) => {
+                hideLoader();
+                if (res.success) {
+                    if (isFromView) closeMonthlyViewModal();
+                    else hideModal('bookingModalMonthly');
+                    
+                    fetchData(true);
+                    if(typeof fetchMonthlyBookings === 'function') fetchMonthlyBookings();
+                    showAlert(res.message, "สำเร็จ", false);
+                } else {
+                    showAlert(res.message, "ข้อผิดพลาด", true);
+                }
+            }).deleteBookingById(bookingId); 
+        });
+    }
+</script>

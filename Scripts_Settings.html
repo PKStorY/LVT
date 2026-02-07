@@ -1,0 +1,64 @@
+<script>
+    /**
+     * Scripts_Settings
+     * จัดการการตั้งค่าระบบ (สำหรับ Super Admin)
+     */
+    
+    // Global Config Variable
+    let systemConfig = {
+        cutoffTime: "19:00" // Default fallback
+    };
+
+    function openSettingsModal() {
+        if (!currentAdmin || currentAdmin.role !== 'Super Admin') {
+            showAlert("สำหรับ Super Admin เท่านั้น", "แจ้งเตือน", true);
+            return;
+        }
+        
+        // Load current value into input
+        document.getElementById('cfg_cutoffTime').value = systemConfig.cutoffTime;
+        
+        document.getElementById('settingsModal').classList.remove('hidden');
+    }
+
+    function fetchSystemConfig() {
+        google.script.run
+            .withSuccessHandler((res) => {
+                if(res.success) {
+                    systemConfig = res.data;
+                    console.log("Config Loaded:", systemConfig);
+                    // Re-render dates if config loaded after init
+                    if(typeof renderQuickDates === 'function') renderQuickDates(true);
+                }
+            })
+            .withFailureHandler(err => console.error("Config Load Error:", err))
+            .getSystemConfig();
+    }
+
+    function saveSettings() {
+        const timeVal = document.getElementById('cfg_cutoffTime').value;
+        if (!timeVal) {
+            showAlert("กรุณาระบุเวลา", "ข้อมูลไม่ครบ", true);
+            return;
+        }
+
+        showLoader();
+        google.script.run
+            .withSuccessHandler((res) => {
+                hideLoader();
+                if(res.success) {
+                    systemConfig.cutoffTime = timeVal; // Update local immediately
+                    document.getElementById('settingsModal').classList.add('hidden');
+                    showAlert(res.message, "สำเร็จ", false);
+                    renderQuickDates(true); // Apply changes immediately
+                } else {
+                    showAlert(res.message, "ข้อผิดพลาด", true);
+                }
+            })
+            .withFailureHandler((err) => {
+                hideLoader();
+                showAlert("Error: " + err, "ข้อผิดพลาด", true);
+            })
+            .saveSystemConfig('CUTOFF_TIME', timeVal);
+    }
+</script>

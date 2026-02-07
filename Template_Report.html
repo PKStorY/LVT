@@ -1,0 +1,336 @@
+<script>
+    console.log("Template_Report: Loaded");
+
+    /**
+     * TEMPLATE: DAILY REPORT (A4 - STRICT LAYOUT)
+     * Update: Strict Tracing (Transaction -> MasterID -> Stall -> Zone)
+     */
+    function generateDailyReportHtml(data, dateStr, actualCash, diffCash, note) {
+        const acc = data.accounting;
+        const incomes = acc.incomes || [];
+        const expenses = acc.expenses || [];
+        const summary = acc.summary || {};
+
+        // ---------------------------------------------------------
+        // 1. DATA MAPPING (PREPARATION)
+        // ---------------------------------------------------------
+
+        // Step 1: Map Stall Name -> Zone (Setup Sheet Col A & D)
+        const stallsMap = {};
+        if (data.stalls) {
+            data.stalls.forEach(s => {
+                let zone = 'General';
+                // Check Type for "Food"
+                if (String(s.type).includes('อาหาร') || String(s.name).toLowerCase().startsWith('f')) zone = 'Food';
+                stallsMap[String(s.name).trim()] = zone;
+            });
+        }
+        
+        // Step 2: Map Booking IDs -> Info (Bookings Sheet Col A, C, O, F)
+        // We map BOTH 'Booking ID' and 'Master ID' to the same info
+        const bookingInfoMap = {}; 
+        
+        if (data.bookings) {
+            data.bookings.forEach(b => {
+                const sName = String(b.stallName).trim();
+                const zone = stallsMap[sName] || 'General';
+                const bType = String(b.type || 'รายวัน'); 
+                
+                // Map ID (Col A)
+                if (b.id) bookingInfoMap[String(b.id).trim()] = { type: bType, zone: zone };
+                
+                // Map Master ID (Col O) - CRITICAL for grouped payments
+                if (b.masterId) bookingInfoMap[String(b.masterId).trim()] = { type: bType, zone: zone };
+            });
+        }
+        
+        if (data.monthlyStats) {
+            data.monthlyStats.forEach(b => {
+                if (b.id) {
+                    let firstStall = String(b.stalls || "");
+                    if (firstStall.includes(',')) firstStall = firstStall.split(',')[0].trim();
+                    const zone = stallsMap[firstStall] || 'General';
+                    bookingInfoMap[String(b.id).trim()] = { type: 'รายเดือน', zone: zone };
+                }
+            });
+        }
+
+        // ---------------------------------------------------------
+        // 2. AGGREGATION LOGIC (THE TRACE)
+        // ---------------------------------------------------------
+        const stats = {
+            dailyRentClothes: { label: "ค่าเช่าล็อครายวัน โซนเสื้อผ้า", cash: 0, transfer: 0 },
+            dailyRentFood: { label: "ค่าเช่าล็อครายวัน โซนอาหาร", cash: 0, transfer: 0 },
+            monthlyRentClothes: { label: "ค่าเช่าล็อครายเดือน โซนเสื้อผ้า", cash: 0, transfer: 0 },
+            monthlyRentFood: { label: "ค่าเช่าล็อครายเดือน โซนอาหาร", cash: 0, transfer: 0 },
+            utility: { label: "ค่าไฟ/ค่าน้ำ/ค่าฝากของ", cash: 0, transfer: 0 },
+            parkingKT: { label: "ค่าจอดรถคลองถม", cash: 0, transfer: 0, details: [] },
+            parkingGen: { label: "ค่าจอดรถคลองถมทั่วไป", cash: 0, transfer: 0, details: [] },
+            roomRent: { label: "ค่าเช่าห้อง", cash: 0, transfer: 0, details: [] },
+            other: { label: "รายรับอื่นๆ", cash: 0, transfer: 0, details: [] }
+        };
+
+        incomes.forEach(item => {
+            // Raw Data
+            const bookingRef = String(item.ref || "").trim();
+            const billType = String(item.billType || ""); 
+            const category = String(item.category || "").trim();
+            const desc = String(item.desc || "");
+            
+            let totalAmt = parseFloat(String(item.amount || 0).replace(/,/g, ''));
+            if (isNaN(totalAmt)) totalAmt = 0;
+
+            const isCash = (String(item.method).toLowerCase() === 'cash' || String(item.method) === 'เงินสด');
+            
+            // Breakdown (Col J, K, L)
+            const bd = item.breakdown || { stall: 0, elec: 0, storage: 0 };
+            let rentAmt = bd.stall; 
+            let utilAmt = bd.elec + bd.storage;
+
+            // Manual Utility fix
+            if (rentAmt === 0 && utilAmt === 0) {
+                 if (category.includes('ค่าไฟ') || category.includes('Utility') || category.includes('ฝากของ')) {
+                     utilAmt = totalAmt;
+                 } else {
+                     rentAmt = totalAmt; 
+                 }
+            }
+
+            // 1. UTILITY
+            if (utilAmt > 0) {
+                if (isCash) stats.utility.cash += utilAmt; else stats.utility.transfer += utilAmt;
+            }
+
+            // 2. RENT / OTHER
+            if (rentAmt > 0) {
+                let type = 'Other';
+                let zone = 'General';
+
+                // --- TRACE START ---
+                // 1. Check DB Map (ID or MasterID)
+                if (bookingRef && bookingInfoMap[bookingRef]) {
+                    const info = bookingInfoMap[bookingRef];
+                    type = info.type;
+                    zone = info.zone;
+                }
+                // 2. Fallback: Bill Type
+                else if (billType === 'Daily Rent') type = 'รายวัน';
+                else if (billType === 'Monthly Rent') type = 'รายเดือน';
+                
+                // 3. Normalize Type String
+                if (type.includes('รายวัน') || type.includes('Daily')) type = 'Daily';
+                else if (type.includes('รายเดือน') || type.includes('Monthly')) type = 'Monthly';
+                
+                // --- ASSIGN ---
+                if (type === 'Daily') {
+                    if (zone === 'Food') {
+                        if (isCash) stats.dailyRentFood.cash += rentAmt; else stats.dailyRentFood.transfer += rentAmt;
+                    } else {
+                        if (isCash) stats.dailyRentClothes.cash += rentAmt; else stats.dailyRentClothes.transfer += rentAmt;
+                    }
+                } 
+                else if (type === 'Monthly') {
+                    if (zone === 'Food') {
+                        if (isCash) stats.monthlyRentFood.cash += rentAmt; else stats.monthlyRentFood.transfer += rentAmt;
+                    } else {
+                        if (isCash) stats.monthlyRentClothes.cash += rentAmt; else stats.monthlyRentClothes.transfer += rentAmt;
+                    }
+                } 
+                else {
+                    // Manual / Other
+                    if (category.includes("ค่าจอดรถคลองถม") && !category.includes("ทั่วไป")) {
+                        if (isCash) stats.parkingKT.cash += rentAmt; else stats.parkingKT.transfer += rentAmt;
+                        if(desc && desc !== "-") stats.parkingKT.details.push(desc);
+                    } 
+                    else if (category.includes("ค่าจอดรถคลองถมทั่วไป")) {
+                        if (isCash) stats.parkingGen.cash += rentAmt; else stats.parkingGen.transfer += rentAmt;
+                        if(desc && desc !== "-") stats.parkingGen.details.push(desc);
+                    } 
+                    else if (category.includes("เช่าห้อง")) {
+                        if (isCash) stats.roomRent.cash += rentAmt; else stats.roomRent.transfer += rentAmt;
+                        if(desc && desc !== "-") stats.roomRent.details.push(desc);
+                    } 
+                    else {
+                        if (isCash) stats.other.cash += rentAmt; else stats.other.transfer += rentAmt;
+                        let detailTxt = "";
+                        if (category !== 'อื่นๆ' && category !== 'รายรับอื่นๆ' && category !== 'ค่าจอง/ค่าเช่า') detailTxt = category;
+                        if (desc && desc !== "-" && desc !== "") detailTxt = detailTxt ? `${detailTxt} (${desc})` : desc;
+                        if(detailTxt) stats.other.details.push(detailTxt);
+                    }
+                }
+            }
+        });
+
+        const getDetailsStr = (arr) => {
+            if (!arr || arr.length === 0) return "";
+            const unique = [...new Set(arr)].filter(Boolean);
+            return ` (${unique.join(", ")})`;
+        };
+
+        // --- 3. HTML Generation ---
+        const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+        let formattedDate = dateStr;
+        try {
+            const [y, m, d] = dateStr.split('-');
+            formattedDate = `${parseInt(d)} ${thaiMonths[parseInt(m)-1]} ${parseInt(y)+543}`;
+        } catch(e) {}
+        
+        const printTime = new Date().toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'});
+        
+        let officerName = "-";
+        if (typeof currentAdmin !== 'undefined' && currentAdmin) {
+            officerName = currentAdmin.name;
+        }
+
+        const IMG_LOGO_URL = "https://img2.pic.in.th/pic/Profile-Alpha_0.png";
+        const fmt = (n) => n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+        let expenseRowsHtml = "";
+        if (expenses.length > 0) {
+            expenses.forEach((ex, idx) => {
+                expenseRowsHtml += `
+                    <tr style="border-bottom: 1px solid #e5e7eb;">
+                        <td style="padding: 2px 8px; text-align: left;">${idx + 1}. ${ex.item} (${ex.category})</td>
+                        <td style="padding: 2px; text-align: center;">${ex.method === 'Cash' ? 'เงินสด' : 'โอน'}</td>
+                        <td style="padding: 2px 8px; text-align: right;">${fmt(parseFloat(ex.amount))}</td>
+                    </tr>
+                `;
+            });
+        } else {
+            expenseRowsHtml = `<tr><td colspan="3" style="padding: 10px; text-align: center; color: #9ca3af; font-style: italic;">ไม่มีรายการค่าใช้จ่าย</td></tr>`;
+        }
+
+        const totalIncomeAll = summary.totalIncome;
+        const totalIncomeCash = summary.cashIn;
+        const totalIncomeTransfer = summary.transferIn;
+        const systemCash = totalIncomeCash - (summary.cashOut || 0);
+        const netProfit = summary.netProfit;
+
+        return `
+            <div class="a4-page" style="font-family: 'Sarabun', sans-serif; color: #000; background: #fff; width: 210mm; padding: 5mm 10mm; box-sizing: border-box; margin: 0 auto; position: relative; overflow: hidden;">
+                <!-- HEADER -->
+                <div style="position: relative; text-align: center; margin-bottom: 10px; margin-top: -5px;">
+                    <img src="${IMG_LOGO_URL}" style="width: 50px; height: auto; position: absolute; left: 0; top: 0;">
+                    <h1 style="font-size: 20px; font-weight: bold; margin: 0; padding-top: 0px; line-height: 1.2;">รายงานสรุปปิดยอดประจำวัน</h1>
+                    <h2 style="font-size: 16px; color: #6b7280; margin: 0 0 6px 0;">ตลาดนัดลาดสวายวินเทจ</h2>
+                    <div style="display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 1px solid #000; padding-bottom: 2px; font-size: 12px;">
+                        <div style="text-align: left;">พิมพ์เมื่อ : ${formattedDate} เวลา ${printTime}</div>
+                        <div style="text-align: right;">เจ้าหน้าที่ : ${officerName}</div>
+                    </div>
+                </div>
+
+                <!-- 1. INCOME SUMMARY -->
+                <div style="margin-bottom: 12px;">
+                    <div style="background-color: #f3f4f6; padding: 2px 8px; font-weight: bold; margin-bottom: 4px; font-size: 13px; border-l-4 border-gray-500">1. สรุปรายรับ (Income Summary)</div>
+                    <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid #000; font-weight: bold;">
+                                <th style="text-align: left; padding: 2px 8px;">รายการ</th>
+                                <th style="text-align: right; padding: 2px; width: 70px;">เงินสด</th>
+                                <th style="text-align: right; padding: 2px; width: 70px;">โอน</th>
+                                <th style="text-align: right; padding: 2px 8px; width: 80px;">รวม</th>
+                            </tr>
+                        </thead>
+                        <tbody style="color: #1f2937;">
+                            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 2px 8px;">${stats.dailyRentClothes.label}</td><td style="text-align: right; padding: 2px;">${stats.dailyRentClothes.cash > 0 ? fmt(stats.dailyRentClothes.cash) : '-'}</td><td style="text-align: right; padding: 2px;">${stats.dailyRentClothes.transfer > 0 ? fmt(stats.dailyRentClothes.transfer) : '-'}</td><td style="text-align: right; padding: 2px 8px; font-weight: 600;">${fmt(stats.dailyRentClothes.cash + stats.dailyRentClothes.transfer)}</td></tr>
+                            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 2px 8px;">${stats.dailyRentFood.label}</td><td style="text-align: right; padding: 2px;">${stats.dailyRentFood.cash > 0 ? fmt(stats.dailyRentFood.cash) : '-'}</td><td style="text-align: right; padding: 2px;">${stats.dailyRentFood.transfer > 0 ? fmt(stats.dailyRentFood.transfer) : '-'}</td><td style="text-align: right; padding: 2px 8px; font-weight: 600;">${fmt(stats.dailyRentFood.cash + stats.dailyRentFood.transfer)}</td></tr>
+                            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 2px 8px;">${stats.monthlyRentClothes.label}</td><td style="text-align: right; padding: 2px;">${stats.monthlyRentClothes.cash > 0 ? fmt(stats.monthlyRentClothes.cash) : '-'}</td><td style="text-align: right; padding: 2px;">${stats.monthlyRentClothes.transfer > 0 ? fmt(stats.monthlyRentClothes.transfer) : '-'}</td><td style="text-align: right; padding: 2px 8px; font-weight: 600;">${fmt(stats.monthlyRentClothes.cash + stats.monthlyRentClothes.transfer)}</td></tr>
+                            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 2px 8px;">${stats.monthlyRentFood.label}</td><td style="text-align: right; padding: 2px;">${stats.monthlyRentFood.cash > 0 ? fmt(stats.monthlyRentFood.cash) : '-'}</td><td style="text-align: right; padding: 2px;">${stats.monthlyRentFood.transfer > 0 ? fmt(stats.monthlyRentFood.transfer) : '-'}</td><td style="text-align: right; padding: 2px 8px; font-weight: 600;">${fmt(stats.monthlyRentFood.cash + stats.monthlyRentFood.transfer)}</td></tr>
+                            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 2px 8px;">${stats.utility.label}</td><td style="text-align: right; padding: 2px;">${stats.utility.cash > 0 ? fmt(stats.utility.cash) : '-'}</td><td style="text-align: right; padding: 2px;">${stats.utility.transfer > 0 ? fmt(stats.utility.transfer) : '-'}</td><td style="text-align: right; padding: 2px 8px; font-weight: 600;">${fmt(stats.utility.cash + stats.utility.transfer)}</td></tr>
+                            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 2px 8px;">${stats.parkingKT.label} <span style="font-size: 11px; color: #6b7280;">${getDetailsStr(stats.parkingKT.details)}</span></td><td style="text-align: right; padding: 2px;">${stats.parkingKT.cash > 0 ? fmt(stats.parkingKT.cash) : '-'}</td><td style="text-align: right; padding: 2px;">${stats.parkingKT.transfer > 0 ? fmt(stats.parkingKT.transfer) : '-'}</td><td style="text-align: right; padding: 2px 8px; font-weight: 600;">${fmt(stats.parkingKT.cash + stats.parkingKT.transfer)}</td></tr>
+                            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 2px 8px;">${stats.parkingGen.label} <span style="font-size: 11px; color: #6b7280;">${getDetailsStr(stats.parkingGen.details)}</span></td><td style="text-align: right; padding: 2px;">${stats.parkingGen.cash > 0 ? fmt(stats.parkingGen.cash) : '-'}</td><td style="text-align: right; padding: 2px;">${stats.parkingGen.transfer > 0 ? fmt(stats.parkingGen.transfer) : '-'}</td><td style="text-align: right; padding: 2px 8px; font-weight: 600;">${fmt(stats.parkingGen.cash + stats.parkingGen.transfer)}</td></tr>
+                            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 2px 8px;">${stats.roomRent.label} <span style="font-size: 11px; color: #6b7280;">${getDetailsStr(stats.roomRent.details)}</span></td><td style="text-align: right; padding: 2px;">${stats.roomRent.cash > 0 ? fmt(stats.roomRent.cash) : '-'}</td><td style="text-align: right; padding: 2px;">${stats.roomRent.transfer > 0 ? fmt(stats.roomRent.transfer) : '-'}</td><td style="text-align: right; padding: 2px 8px; font-weight: 600;">${fmt(stats.roomRent.cash + stats.roomRent.transfer)}</td></tr>
+                            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 2px 8px;">${stats.other.label} <span style="font-size: 11px; color: #6b7280;">${getDetailsStr(stats.other.details)}</span></td><td style="text-align: right; padding: 2px;">${stats.other.cash > 0 ? fmt(stats.other.cash) : '-'}</td><td style="text-align: right; padding: 2px;">${stats.other.transfer > 0 ? fmt(stats.other.transfer) : '-'}</td><td style="text-align: right; padding: 2px 8px; font-weight: 600;">${fmt(stats.other.cash + stats.other.transfer)}</td></tr>
+                        </tbody>
+                        <tfoot>
+                            <tr style="background-color: #f3f4f6; font-weight: bold; border-top: 1px solid #000;">
+                                <td style="padding: 4px 8px;">รวมรายรับทั้งสิ้น</td>
+                                <td style="text-align: right; padding: 4px;">${fmt(totalIncomeCash)}</td>
+                                <td style="text-align: right; padding: 4px;">${fmt(totalIncomeTransfer)}</td>
+                                <td style="text-align: right; padding: 4px 8px; font-size: 16px;">${fmt(totalIncomeAll)}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <!-- 2. EXPENSE SUMMARY -->
+                <div style="margin-bottom: 16px;">
+                    <div style="background-color: #f3f4f6; padding: 2px 8px; font-weight: bold; margin-bottom: 4px; font-size: 13px; border-l-4 border-gray-500">2. สรุปรายจ่าย (Expense Summary)</div>
+                    <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid #000; font-weight: bold;">
+                                <th style="text-align: left; padding: 4px 8px;">รายการ</th>
+                                <th style="text-align: center; padding: 4px; width: 80px;">ช่องทาง</th>
+                                <th style="text-align: right; padding: 4px 8px; width: 120px;">จำนวนเงิน</th>
+                            </tr>
+                        </thead>
+                        <tbody>${expenseRowsHtml}</tbody>
+                        <tfoot>
+                            <tr style="background-color: #f3f4f6; font-weight: bold; border-top: 1px solid #000;">
+                                <td colspan="2" style="padding: 4px 8px; text-align: right;">รวมรายจ่ายทั้งสิ้น</td>
+                                <td style="text-align: right; padding: 4px 8px; font-size: 14px; color: #dc2626;">${fmt(summary.totalExpense)}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <!-- 3. CASH RECONCILIATION -->
+                <div style="margin-bottom: 24px; border: 1px solid #e5e7eb; padding: 0;">
+                    <div style="background-color: #f3f4f6; padding: 2px 8px; font-weight: bold; font-size: 13px;">3. ตรวจนับเงินสด (Cash Reconciliation)</div>
+                    <div style="display: flex; font-size: 13px;">
+                        <div style="width: 50%; padding: 8px; border-right: 1px solid #e5e7eb;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                                <span style="color: #4b5563;">รับเงินสด (Cash In)</span>
+                                <span style="font-weight: 500;">${fmt(summary.cashIn)}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                <span style="color: #4b5563;">หัก จ่ายเงินสด (Cash Out)</span>
+                                <span style="font-weight: 500; color: #dc2626;">-${fmt(summary.cashOut)}</span>
+                            </div>
+                            <div style="border-top: 1px solid #d1d5db; padding-top: 2px; display: flex; justify-content: space-between; font-weight: bold; font-size: 14px;">
+                                <span>ยอดเงินสดในระบบ (Expected)</span>
+                                <span>${fmt(systemCash)}</span>
+                            </div>
+                        </div>
+                        
+                        <div style="width: 50%; padding: 8px; background-color: #f9fafb;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                <span style="color: #1e3a8a; font-weight: bold;">นับเงินสดจริง (Actual)</span>
+                                <span style="font-weight: bold; color: #1e3a8a; font-size: 14px;">${actualCash ? fmt(actualCash) : '0.00'}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                <span style="font-weight: bold;">ผลต่าง (Diff)</span>
+                                <span style="font-weight: bold; font-size: 16px; color: ${diffCash == 0 ? '#16a34a' : '#dc2626'};">
+                                    ${diffCash > 0 ? '+' : ''}${fmt(diffCash)}
+                                </span>
+                            </div>
+                            ${note ? `<div class="text-xs text-gray-500 mt-1 pt-1 border-t border-dashed border-gray-300"><b>หมายเหตุ:</b> ${note}</div>` : ''}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- NET PROFIT -->
+                <div style="margin-bottom: 32px;">
+                    <div style="border-top: 2px solid #000; width: 100%; margin-bottom: 6px;"></div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 18px; font-weight: bold; color: ${netProfit >= 0 ? '#000' : '#dc2626'};">
+                            กำไรสุทธิประจำวัน (Net Profit): ${fmt(netProfit)} บาท
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SIGNATURES -->
+                <div style="display: flex; justify-content: space-between; align-items: flex-end; padding: 0 40px; margin-top: auto;">
+                    <div style="text-align: center; width: 40%;">
+                        <div style="border-bottom: 1px solid #000; margin-bottom: 4px; height: 32px;"></div>
+                        <div style="font-size: 12px;">ผู้ส่งยอด (Cashier)</div>
+                    </div>
+                    <div style="text-align: center; width: 40%;">
+                        <div style="border-bottom: 1px solid #000; margin-bottom: 4px; height: 32px;"></div>
+                        <div style="font-size: 12px;">ผู้ตรวจรับ (Manager/Account)</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+</script>
