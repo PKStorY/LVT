@@ -229,9 +229,29 @@
                 fetchAccountingOnly();
             }
         }
+
+        // Updated function: Resets form and sets date to today
         function setModal(config) {
-            if(config.type === 'income') showModal('incomeModal');
-            if(config.type === 'expense') showModal('expenseModal');
+            const today = new Date().toISOString().split('T')[0];
+
+            if(config.type === 'income') {
+                const form = document.getElementById('incomeForm');
+                if (form) form.reset(); // Clear old data
+                
+                const dateEl = document.getElementById('inc_date');
+                if (dateEl) dateEl.value = today; // Set date to today
+
+                showModal('incomeModal');
+            }
+            if(config.type === 'expense') {
+                const form = document.getElementById('expenseForm');
+                if (form) form.reset(); // Clear old data
+
+                const dateEl = document.getElementById('exp_date');
+                if (dateEl) dateEl.value = today; // Set date to today
+
+                showModal('expenseModal');
+            }
         }
     </script>
 </body>
