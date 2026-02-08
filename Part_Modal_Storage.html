@@ -1,7 +1,8 @@
 <!-- Storage Modal -->
-<div id="storageModal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-[70]">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden animate-bounce-in">
-        <div class="bg-orange-500 px-4 py-3 flex justify-between items-center">
+<!-- UPDATE: Increased Z-Index to 100 to appear above Storage Management Modal (z-80) -->
+<div id="storageModal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-[100]">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden animate-bounce-in flex flex-col max-h-[90vh]">
+        <div class="bg-orange-500 px-4 py-3 flex justify-between items-center shrink-0">
             <h3 class="font-bold text-lg text-white flex items-center gap-2">
                 <i class="fa-solid fa-box-open"></i> แจ้งฝากของ
             </h3>
@@ -10,14 +11,34 @@
             </button>
         </div>
         
-        <div class="p-6">
+        <div class="p-6 overflow-y-auto">
             <form id="storageForm" onsubmit="submitStorage(event)" class="space-y-4">
-                <input type="hidden" id="st_stallName">
                 <input type="hidden" id="st_bookingId"> <!-- Receive Booking ID -->
                 
-                <div class="bg-orange-50 p-3 rounded-lg border border-orange-200 text-center mb-4">
+                <!-- Display Mode (When clicked from Map) -->
+                <div id="st_stallDisplayGroup" class="bg-orange-50 p-3 rounded-lg border border-orange-200 text-center mb-4">
                     <p class="text-xs text-orange-600 font-bold uppercase mb-1">ล็อคที่ฝาก</p>
                     <h2 id="st_displayStall" class="text-3xl font-bold text-orange-800"></h2>
+                    <input type="hidden" id="st_stallName">
+                </div>
+
+                <!-- Input Mode (When clicked from Add Button) -->
+                <div id="st_stallInputGroup" class="hidden mb-4 relative">
+                     <label class="block text-xs font-bold text-gray-700 mb-1">เลือกตำแหน่งฝาก (ล็อค/จุดพัก)</label>
+                     <div class="relative">
+                         <input type="text" id="st_stallSearchInput" placeholder="พิมพ์ชื่อล็อค..." class="w-full border border-gray-300 rounded px-3 py-2 pl-9 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 uppercase font-bold" onkeyup="filterStorageStalls()" onfocus="showStorageStallDropdown()" autocomplete="off">
+                         <i class="fa-solid fa-search absolute left-3 top-2.5 text-gray-400"></i>
+                     </div>
+                     <!-- Dropdown -->
+                     <div id="st_stallDropdownList" class="hidden absolute w-full bg-white border border-gray-200 rounded-b-lg shadow-xl max-h-48 overflow-y-auto z-50 mt-1">
+                         <!-- Items injected by JS -->
+                     </div>
+                </div>
+                
+                <!-- UPDATE: Start Date Field -->
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-1">วันที่เริ่มฝาก (สำหรับบันทึกย้อนหลัง)</label>
+                    <input type="date" id="st_startDate" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-gray-50 text-gray-800 font-medium">
                 </div>
 
                 <div>
@@ -58,7 +79,7 @@
                         </label>
                     </div>
                     
-                    <p class="text-[10px] text-gray-500 mt-1">*ระบบจะนับวันหมดอายุอัตโนมัติ 7 วันนับจากวันนี้</p>
+                    <p class="text-[10px] text-gray-500 mt-1">*ระบบจะนับวันหมดอายุอัตโนมัติ 7 วันนับจากวันที่เลือก</p>
                 </div>
 
                 <button type="submit" class="w-full bg-orange-600 text-white font-bold py-2.5 rounded-lg hover:bg-orange-700 shadow-md transition transform active:scale-95">

@@ -2,7 +2,8 @@
     /**
      * Scripts_Session
      * จัดการ Session และ Firebase Authentication
-     * Update: Centralized Logic (Fixed Logout/Login Modal Issues)
+     * Update: Full Code Restoration (แก้ปัญหาโค้ดหาย)
+     * Update: Added btnPrintMap to restoreAdminUI
      */
 
     // Firebase Config from User
@@ -60,10 +61,12 @@
             if(defIcon) defIcon.classList.add('hidden');
         }
 
+        // --- UPDATE: เพิ่ม btnPrintMap และ btnPrintMapMobile ในรายการที่จะแสดง ---
         const idsToShow = [
             'btnNextDate', 'btnPrevDate', 'btnArchive', 
             'btnMonthlyTop', 'btnMonthlyTopMobile',
-            'btnStorageTop', 'btnStorageTopMobile'
+            'btnStorageTop', 'btnStorageTopMobile',
+            'btnPrintMap', 'btnPrintMapMobile' // <--- เพิ่มตรงนี้เพื่อให้ปุ่มปริ้นแสดง
         ];
         idsToShow.forEach(id => {
             const el = document.getElementById(id);
@@ -157,42 +160,9 @@
         }).checkLogin(email); 
     }
 
-    function confirmLogout() {
-        if(typeof hideModal === 'function') hideModal('logoutModal');
-        
-        auth.signOut().then(() => { console.log("Firebase Signed Out"); });
+    // FIX: Removed duplicate confirmLogout (It is now in Scripts_Main.html)
 
-        currentAdmin = null;
-        localStorage.removeItem(SESSION_KEY);
-        
-        const badge = document.getElementById('admin_badge');
-        if(badge) badge.innerText = "";
-        
-        const avatar = document.getElementById('userAvatar');
-        const defIcon = document.getElementById('defaultUserIcon');
-        if(avatar) avatar.classList.add('hidden');
-        if(defIcon) defIcon.classList.remove('hidden');
-
-        const elementsToHide = [
-            'btnNextDate', 'btnPrevDate', 'btnArchive', 
-            'btnMonthlyTop', 'btnMonthlyTopMobile',
-            'btnStorageTop', 'btnStorageTopMobile',
-            'btnRefreshCache', 'btnRefreshCacheMobile',
-            'btnSettings', 'btnSettingsMobile',
-            'btnDashboard', 'btnDashboardMobile'
-        ];
-        elementsToHide.forEach(id => {
-            const el = document.getElementById(id);
-            if (el) {
-                el.classList.add('hidden');
-                el.style.display = ''; 
-            }
-        });
-        
-        fetchData();
-    }
-
-    // FIX: Main Function to Toggle Panels (Replaces conflicting versions)
+    // FIX: Main Function to Toggle Panels
     function toggleAdminPanel() {
         if (currentAdmin) {
             // Populate Logout Modal Data

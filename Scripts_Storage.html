@@ -2,27 +2,49 @@
     /**
      * Scripts_Storage
      * จัดการการทำงานของระบบฝากของ Client Side
-     * FIX: handleReprintStorage now fetches actual payment amount instead of hardcoded "160"
-     * FIX: Use Employee ID for Officer field in Ticket (Consistent across all print actions)
-     * FIX: Targeted button replacement in checkStorageConflict to prevent UI layout issues
-     * FIX: Use showModal() in checkStorageConflict to ensure modal is visible (remove opacity-0)
-     * Update: Adjusted showBookingSuccess call for new signature
+     * Update: Added Start Date Logic for Retroactive Storage
      */
 
     let globalStorageMap = {}; 
 
     function openStorageModal(stallName, prefillOwner = "", bookingId = "") {
         document.getElementById('storageForm').reset();
-        document.getElementById('st_stallName').value = stallName;
         document.getElementById('st_bookingId').value = bookingId; 
-        document.getElementById('st_displayStall').innerText = stallName;
         
         document.getElementById('st_ownerName').value = prefillOwner;
-        
         document.getElementById('st_amount').value = "160";
         document.getElementById('st_payNow').checked = true;
+        
+        // UPDATE: Set Default Date to Today (Local Time)
+        const today = new Date();
+        const localDate = new Date(today.getTime() - (today.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+        document.getElementById('st_startDate').value = localDate;
+
         toggleStoragePayment();
         
+        const displayGroup = document.getElementById('st_stallDisplayGroup');
+        const inputGroup = document.getElementById('st_stallInputGroup');
+        const searchInput = document.getElementById('st_stallSearchInput');
+        const hiddenStall = document.getElementById('st_stallName');
+
+        // Logic Switch: Manual vs Map Click
+        if (stallName) {
+            // Clicked from Map
+            displayGroup.classList.remove('hidden');
+            inputGroup.classList.add('hidden');
+            
+            document.getElementById('st_displayStall').innerText = stallName;
+            hiddenStall.value = stallName;
+        } else {
+            // Clicked "Add" Button
+            displayGroup.classList.add('hidden');
+            inputGroup.classList.remove('hidden');
+            
+            searchInput.value = "";
+            hiddenStall.value = ""; // Clear previous
+        }
+
+        // Hide Parent Modal temporarily (Prevent Double Overlay)
         const bookingModal = document.getElementById('bookingModal');
         if(bookingModal) {
             bookingModal.style.display = 'none'; 
@@ -54,22 +76,111 @@
         }
     }
 
+    // --- Stall Search Logic (Dropdown) ---
+    function showStorageStallDropdown() {
+        const list = document.getElementById('st_stallDropdownList');
+        if (!list) return;
+        
+        list.innerHTML = '';
+        
+        // Add "Holding Area" option first
+        const holdingDiv = document.createElement('div');
+        holdingDiv.className = 'st-stall-option px-4 py-2 hover:bg-orange-50 cursor-pointer text-sm border-b font-bold text-orange-700 bg-orange-50/50';
+        holdingDiv.innerText = "จุดพัก (Holding Area)";
+        holdingDiv.onclick = () => selectStorageStall("Holding Area");
+        list.appendChild(holdingDiv);
+
+        if (typeof stallsData !== 'undefined' && Array.isArray(stallsData)) {
+            // Filter only valid stalls
+            stallsData.forEach(s => {
+                const sName = String(s.name).trim();
+                if (!sName || s.type === 'ทางเดิน' || s.type === 'อื่นๆ') return;
+                
+                const div = document.createElement('div');
+                div.className = 'st-stall-option px-4 py-2 hover:bg-blue-50 cursor-pointer text-sm border-b last:border-0';
+                div.dataset.search = sName.toLowerCase();
+                div.innerText = sName;
+                div.onclick = (e) => {
+                    e.stopPropagation();
+                    selectStorageStall(sName);
+                };
+                list.appendChild(div);
+            });
+        }
+        list.classList.remove('hidden');
+    }
+
+    function filterStorageStalls() {
+        const input = document.getElementById('st_stallSearchInput');
+        const filter = input.value.toLowerCase();
+        const list = document.getElementById('st_stallDropdownList');
+        
+        if (list.classList.contains('hidden')) showStorageStallDropdown();
+        
+        const options = list.querySelectorAll('.st-stall-option');
+        options.forEach(div => {
+            if (div.innerText.toLowerCase().includes(filter)) {
+                div.classList.remove('hidden');
+            } else {
+                div.classList.add('hidden');
+            }
+        });
+    }
+
+    function selectStorageStall(name) {
+        document.getElementById('st_stallSearchInput').value = name;
+        document.getElementById('st_stallName').value = name;
+        document.getElementById('st_stallDropdownList').classList.add('hidden');
+    }
+
+    document.addEventListener('click', function(e) {
+        const wrapper = document.getElementById('st_stallInputGroup');
+        const input = document.getElementById('st_stallSearchInput');
+        const list = document.getElementById('st_stallDropdownList');
+        
+        if (wrapper && !wrapper.classList.contains('hidden')) {
+             if (e.target !== input && list && !list.contains(e.target)) {
+                 list.classList.add('hidden');
+             }
+        }
+    });
+
+    // --- Submit ---
     function submitStorage(e) {
         e.preventDefault();
         
         const payNow = document.getElementById('st_payNow').checked;
         const methodEl = document.querySelector('input[name="st_method"]:checked');
         const amount = parseFloat(document.getElementById('st_amount').value || 0);
+        const stallName = document.getElementById('st_stallName').value;
+        const startDateVal = document.getElementById('st_startDate').value;
+
+        if (!stallName) {
+             showAlert("กรุณาระบุตำแหน่งฝาก (ล็อค/จุดพัก)", "ข้อมูลไม่ครบ", true);
+             return;
+        }
+
+        if (!startDateVal) {
+             showAlert("กรุณาระบุวันที่เริ่มฝาก", "ข้อมูลไม่ครบ", true);
+             return;
+        }
+
+        // Calculate End Date (Start + 6 days = 7 days total)
+        const sDate = new Date(startDateVal);
+        const eDate = new Date(sDate);
+        eDate.setDate(sDate.getDate() + 6);
         
         const formData = {
-            stallName: document.getElementById('st_stallName').value,
+            stallName: stallName,
             bookingId: document.getElementById('st_bookingId').value, 
             ownerName: document.getElementById('st_ownerName').value,
             phone: document.getElementById('st_phone').value,
             note: document.getElementById('st_note').value,
             amount: amount,
             payNow: payNow,
-            method: methodEl ? methodEl.value : 'Cash'
+            method: methodEl ? methodEl.value : 'Cash',
+            customStartDate: startDateVal,
+            customEndDate: eDate.toISOString().split('T')[0]
         };
 
         if(!formData.ownerName) {
@@ -94,15 +205,12 @@
                     }
                     
                     showBookingSuccess(
-                        "บันทึกการฝากของเรียบร้อย",
+                        res.message, 
                         payNow, 
                         () => { // On Print
-                            const now = new Date();
-                            const nextWeek = new Date(now);
-                            nextWeek.setDate(now.getDate() + 6);
-                            
                             const officerID = currentAdmin ? (currentAdmin.employeeId || currentAdmin.name) : "System";
                             
+                            // Use calculated dates for printing
                             const ticketData = {
                                 ownerName: formData.ownerName,
                                 stallName: formData.stallName,
@@ -110,9 +218,9 @@
                                 note: formData.note,
                                 method: formData.method,
                                 officer: officerID,
-                                timestampStr: formatTicketDateTime(now),
-                                startDateStr: formatThaiDateFull(now.toISOString().split('T')[0]),
-                                endDateStr: formatThaiDateFull(nextWeek.toISOString().split('T')[0])
+                                timestampStr: formatTicketDateTime(new Date()),
+                                startDateStr: formatThaiDateFull(formData.customStartDate),
+                                endDateStr: formatThaiDateFull(formData.customEndDate)
                             };
                             
                             printStorageTicket(ticketData); 
@@ -124,6 +232,7 @@
                         () => fetchData(true) 
                     );
                     
+                    if(typeof fetchStorageList === 'function') fetchStorageList(); 
                     fetchData(true); 
                 } else {
                     showAlert(res.message, "ข้อผิดพลาด", true);
@@ -135,78 +244,7 @@
             })
             .saveStorageItem(formData);
     }
-
-    function checkStorageConflict(stallName, onProceed) {
-        const storage = globalStorageMap[stallName];
-        if (storage) {
-            document.getElementById('confirmTitle').innerText = `⚠️ พบของฝากที่ล็อค ${stallName}`;
-            document.getElementById('confirmMessage').innerHTML = `
-                <div class="text-left bg-orange-50 p-3 rounded border border-orange-200 text-xs mb-2">
-                    <div><b>เจ้าของ:</b> ${storage.ownerName}</div>
-                    <div><b>โทร:</b> ${storage.phone}</div>
-                    <div><b>หมดอายุ:</b> ${formatThaiDateShort(storage.endDate)}</div>
-                    <div><b>โน้ต:</b> ${storage.note || "-"}</div>
-                </div>
-                <p>ต้องการดำเนินการอย่างไร?</p>
-            `;
-            
-            const btnContainer = document.getElementById('confirmBtnContainer');
-            if (!btnContainer) {
-                 console.error("Confirm Button Container not found");
-                 // Fallback if ID not found (should be fixed in HTML, but safety here)
-                 return;
-            }
-
-            const originalHtml = btnContainer.innerHTML; 
-            
-            // Inject new custom buttons
-            btnContainer.innerHTML = `
-                <button id="btnMoveStorage" class="px-3 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold hover:bg-purple-700 shadow-sm flex-1 transform active:scale-95 transition-all">ย้ายไปจุดพัก</button>
-                <button id="btnSellToOwner" class="px-3 py-2 bg-green-600 text-white rounded-xl text-xs font-bold hover:bg-green-700 shadow-sm flex-1 transform active:scale-95 transition-all">ขายให้เจ้าของ</button>
-                <button id="btnCancelStorage" class="px-3 py-2 bg-gray-100 text-gray-600 rounded-xl text-xs font-bold hover:bg-gray-200 flex-none w-20 transition-colors">ยกเลิก</button>
-            `;
-            
-            // FIX: Use showModal to properly remove opacity/pointer-events classes
-            showModal('customConfirmModal');
-            
-            document.getElementById('btnMoveStorage').onclick = () => {
-                hideModal('customConfirmModal');
-                moveStorageAction(storage.id, onProceed);
-                setTimeout(() => { btnContainer.innerHTML = originalHtml; }, 500);
-            };
-            
-            document.getElementById('btnSellToOwner').onclick = () => {
-                hideModal('customConfirmModal');
-                if(onProceed) onProceed(storage); 
-                setTimeout(() => { btnContainer.innerHTML = originalHtml; }, 500);
-            };
-            
-            document.getElementById('btnCancelStorage').onclick = () => {
-                hideModal('customConfirmModal');
-                setTimeout(() => { btnContainer.innerHTML = originalHtml; }, 500);
-            };
-            
-        } else {
-            if(onProceed) onProceed(null);
-        }
-    }
-
-    function moveStorageAction(storageId, nextAction) {
-        showLoader();
-        google.script.run
-            .withSuccessHandler((res) => {
-                hideLoader();
-                if(res.success) {
-                    showAlert(res.message, "ย้ายสำเร็จ", false);
-                    fetchData(true); 
-                    if(nextAction) nextAction(null); 
-                } else {
-                    showAlert(res.message, "ข้อผิดพลาด", true);
-                }
-            })
-            .moveStorageToHolding(storageId);
-    }
-
+    
     function handleReprintStorage(id) {
         const item = storageDataCache.find(x => x.id === id);
         if (!item) return;
@@ -226,7 +264,7 @@
                 amountPaid = 160; 
             }
 
-            const officerID = currentAdmin ? (currentAdmin.employeeId || currentAdmin.name) : "System";
+            const officerName = currentAdmin ? (currentAdmin.employeeId || currentAdmin.name) : "System";
 
             const ticketData = {
                 ownerName: item.ownerName,
@@ -234,7 +272,7 @@
                 amount: amountPaid.toString(), 
                 note: item.note,
                 method: method, 
-                officer: officerID,
+                officer: officerName,
                 timestampStr: formatTicketDateTime(new Date()), 
                 startDateStr: formatThaiDateFull(item.startDate),
                 endDateStr: formatThaiDateFull(item.endDate)
@@ -246,5 +284,62 @@
             hideLoader();
             showAlert("เกิดข้อผิดพลาดในการดึงข้อมูล: " + err, "ข้อผิดพลาด", true);
         }).getPaymentHistory(id); 
+    }
+    
+    function handleReturnStorage(id, stallName) {
+        showConfirm(`ยืนยันการคืนของล็อค ${stallName}? \nรายการจะถูกเปลี่ยนสถานะเป็น "คืนแล้ว"`, "ยืนยันคืนของ", () => {
+            showLoader();
+            google.script.run
+                .withSuccessHandler((res) => {
+                    hideLoader();
+                    if(res.success) {
+                        showAlert(res.message, "สำเร็จ", false);
+                        fetchStorageList(); 
+                        fetchData(true); 
+                    } else {
+                        showAlert(res.message, "ข้อผิดพลาด", true);
+                    }
+                })
+                .withFailureHandler(err => {
+                    hideLoader();
+                    showAlert("Error: " + err, "ข้อผิดพลาด", true);
+                })
+                .completeStorageItem(id);
+        });
+    }
+
+    function openStorageMoveModal(id, currentLoc) {
+        document.getElementById('mv_storage_id').value = id;
+        document.getElementById('mv_current_location').value = currentLoc;
+        document.getElementById('mv_display_current').innerText = currentLoc;
+        
+        document.getElementById('st_mv_stallSearch').value = "";
+        document.getElementById('st_mv_target_stall').value = "";
+        document.getElementById('st_mv_dropdownList').classList.add('hidden');
+        
+        const btnHolding = document.getElementById('opt_move_holding');
+        if (currentLoc === 'Holding Area') {
+            btnHolding.classList.add('hidden');
+        } else {
+            btnHolding.classList.remove('hidden');
+        }
+        
+        document.getElementById('storageMoveModal').classList.remove('hidden');
+    }
+    
+    function moveStorageAction(storageId, nextAction) {
+        showLoader();
+        google.script.run
+            .withSuccessHandler((res) => {
+                hideLoader();
+                if(res.success) {
+                    showAlert(res.message, "ย้ายสำเร็จ", false);
+                    fetchData(true); 
+                    if(nextAction) nextAction(null); 
+                } else {
+                    showAlert(res.message, "ข้อผิดพลาด", true);
+                }
+            })
+            .moveStorageToHolding(storageId);
     }
 </script>

@@ -2,8 +2,8 @@
  * ------------------------------------------------------------------
  * CONTROLLER: STORAGE
  * API สำหรับระบบฝากของ
- * Update: FIX Logic Pay Now (Separate) vs Pay Later (Update Booking Debt, No Storage Record)
- * Update: FIX Calculation bug (Add fee to Master Row only)
+ * Update: Logic ใหม่ "Create Record Always" (สร้างใบฝากเสมอ แม้ยังไม่จ่าย)
+ * Update: Pay Later -> Update Booking Debt (ถ้ามี Booking)
  * ------------------------------------------------------------------
  */
 
@@ -16,70 +16,87 @@ function saveStorageItem(formObj) {
     const fee = parseFloat(formObj.amount || 0);
     let result = { success: true };
 
-    // CASE A: Pay Later (แปะไว้) -> Update Booking Sheet ONLY (Do NOT create storage record yet)
-    if (formObj.bookingId && !isPayNow && fee > 0) {
-        const ssDaily = SpreadsheetApp.openById(SHEET_ID_DAILY);
-        const sheet = ssDaily.getSheetByName("Bookings");
-        const data = sheet.getDataRange().getValues();
-        
-        let updated = false;
-
-        // 1. Try to find Master Row first (ID matches BookingID)
-        for (let i = 1; i < data.length; i++) {
-            if (String(data[i][0]) === String(formObj.bookingId)) {
-                updateSheetRow(sheet, i + 1, data[i], fee);
-                updated = true;
-                break; // Update ONLY ONE row (Master)
-            }
-        }
-        
-        // 2. If Master Row not found, update the first Sub-Row found
-        if (!updated) {
-            for (let i = 1; i < data.length; i++) {
-                if (String(data[i][14]) === String(formObj.bookingId)) {
-                    updateSheetRow(sheet, i + 1, data[i], fee);
-                    updated = true;
-                    break; // Update ONLY ONE row
-                }
-            }
-        }
-        
-        if (updated) {
-            result.message = "บันทึกยอดฝากของ (ค้างชำระ) เรียบร้อย";
+    // 1. ALWAYS Create/Update Storage Record first (เพื่อให้มีข้อมูลในระบบและแสดงบนผัง)
+    // --------------------------------------------------------------------------------
+    let storageResult;
+    
+    // ตรวจสอบว่ามี Booking ID นี้ฝากอยู่แล้วหรือไม่ (ป้องกันการสร้างซ้ำซ้อนถ้ากดฝากซ้ำจากหน้าเดิม)
+    // แต่ถ้าเป็นการ "เพิ่ม" รายการใหม่ (Manual Add) ก็จะสร้างใหม่
+    if (formObj.bookingId) {
+        const existing = RepoStorage.findActiveByBookingId(formObj.bookingId);
+        if (existing) {
+             // ถ้ามีอยู่แล้ว ให้อัปเดตข้อมูลแทน
+             RepoStorage.updateStorageFromBooking(existing.rowIndex, formObj);
+             storageResult = { success: true, storageId: existing.id, action: "updated" };
         } else {
-            return { success: false, message: "ไม่พบข้อมูลการจองเพื่อบันทึกยอด" };
+             // ถ้าไม่มี ให้สร้างใหม่
+             storageResult = ServiceStorage.createStorage(formObj);
         }
-    }
-
-    // CASE B: Pay Now -> Create Storage Record AND Transaction (Do NOT update Booking Sheet Debt)
-    if (isPayNow && fee > 0) {
-        // 1. Create Storage Record
-        const storageResult = ServiceStorage.createStorage(formObj);
-        result = storageResult; // Keep storageId and success status
-        
-        // 2. Record Transaction
-        const officer = "System"; 
-        const refId = formObj.bookingId || storageResult.storageId || "STORAGE-WALK-IN";
-        
-        const breakdown = { stall: 0, elec: 0, storage: fee };
-        ServiceFinance.recordPayment(
-            refId, 
-            "ค่าฝากของ", 
-            formObj.amount, 
-            formObj.method, 
-            `ค่าฝากของล็อค ${formObj.stallName} (${formObj.note || "-"})`, 
-            officer,
-            breakdown,
-            "Storage"
-        );
-        result.message = "บันทึกฝากของและชำระเงินเรียบร้อย";
+    } else {
+        // กรณี Walk-in หรือไม่มี Booking ID -> สร้างใหม่เสมอ
+        storageResult = ServiceStorage.createStorage(formObj);
     }
     
-    // Case: Save without payment (Standard Storage, e.g. Free or Manual logic not covered above but standard create)
-    // If not PayLater(Booking) and not PayNow(Fee>0), assume standard create (e.g. fee=0 or walk-in pay later?)
-    // For safety, if we haven't done Case A or B, just create the record.
-    if (!formObj.bookingId && !isPayNow) {
-         result = ServiceStorage.createStorage(formObj);
+    result = storageResult;
+    result.message = "บันทึกข้อมูลฝากของเรียบร้อย";
+
+    // 2. Handle Finance (แยกจัดการเรื่องเงิน)
+    // --------------------------------------------------------------------------------
+    if (fee > 0) {
+        if (isPayNow) {
+            // CASE A: Pay Now -> บันทึก Transaction รับเงินเลย
+            const officer = "System"; 
+            // ใช้ ID ของ Booking เป็น Ref ถ้ามี, ถ้าไม่มีใช้ Storage ID
+            const refId = formObj.bookingId || storageResult.storageId;
+            
+            const breakdown = { stall: 0, elec: 0, storage: fee };
+            ServiceFinance.recordPayment(
+                refId, 
+                "ค่าฝากของ", 
+                formObj.amount, 
+                formObj.method, 
+                `ค่าฝากของล็อค ${formObj.stallName} (${formObj.note || "-"})`, 
+                officer,
+                breakdown,
+                "Storage"
+            );
+            result.message = "บันทึกฝากของและชำระเงินเรียบร้อย";
+        } 
+        else if (formObj.bookingId) {
+            // CASE B: Pay Later + มี Booking -> แปะหนี้ไว้ที่ Booking (เพิ่มยอด Total, ไม่สร้าง Transaction)
+            const ssDaily = SpreadsheetApp.openById(SHEET_ID_DAILY);
+            const sheet = ssDaily.getSheetByName("Bookings");
+            const data = sheet.getDataRange().getValues();
+            
+            let updated = false;
+
+            // Update Master Row
+            for (let i = 1; i < data.length; i++) {
+                if (String(data[i][0]) === String(formObj.bookingId)) {
+                    updateSheetRow(sheet, i + 1, data[i], fee);
+                    updated = true;
+                    break;
+                }
+            }
+            
+            // If Master not found, try Sub-Row
+            if (!updated) {
+                for (let i = 1; i < data.length; i++) {
+                    if (String(data[i][14]) === String(formObj.bookingId)) {
+                        updateSheetRow(sheet, i + 1, data[i], fee);
+                        updated = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (updated) {
+                result.message = "บันทึกฝากของ และเพิ่มยอดหนี้ใน Booking เรียบร้อย";
+            }
+        }
+        // CASE C: Pay Later + ไม่มี Booking (Walk-in)
+        // สร้างแค่ Record ฝากของ (สถานะ Active) แต่ไม่มีที่เก็บหนี้ใน Booking Sheet
+        // ข้อมูลจะโชว์ใน Storage List ว่า Active (เจ้าหน้าที่ต้องตามเก็บตอนคืนของ)
     }
     
     return result;

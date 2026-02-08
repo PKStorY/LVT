@@ -1,10 +1,10 @@
 <script>
-    // --- MAIN CONTROLLER & LOGIC ---
-    // Update: Performance Optimization (Smart DOM Update & Reserved Space)
-    // Update: Dynamic Grid System (Sheet-Driven Map Dimensions)
-    // Update: Auto Day Cutoff based on Config
-    // Update: Replaced alerts with showAlert
-    // Update: Regular Monthly Customer Color Fix (Orange if unpaid)
+    /**
+     * Scripts_Main
+     * Main Controller & Logic
+     * Update: Full Code Restoration (กู้คืนโค้ดส่วนที่หายไป)
+     * Update: Ensures fetchData calls renderGrid from Scripts_UI correctly
+     */
 
     // ประกาศตัวแปรมารอรับ URL
     let globalDashboardUrl = null;
@@ -126,7 +126,20 @@
         google.script.run
             .withSuccessHandler((data) => {
                 if (currentFetchId === lastFetchId) {
-                    renderGrid(data);
+                    // Update Global Data for Search & Print
+                    if (data.stalls) stallsData = data.stalls;
+                    if (data.bookings) bookingsData = data.bookings;
+                    if (data.storageMap) {
+                        if(typeof globalStorageMap !== 'undefined') globalStorageMap = data.storageMap;
+                        else window.globalStorageMap = data.storageMap;
+                    }
+
+                    // Call renderGrid from Scripts_UI
+                    if (typeof renderGrid === 'function') {
+                        renderGrid(data);
+                    } else {
+                        console.error("renderGrid function not found in Scripts_UI");
+                    }
                 }
             })
             .withFailureHandler((error) => {
@@ -161,148 +174,6 @@
                 })
                 .clearSystemCache();
         });
-    }
-
-    function renderGrid(data) {
-        stallsData = (data && data.stalls) ? data.stalls : [];
-        bookingsData = (data && data.bookings) ? data.bookings : [];
-        
-        if (data.storageMap) {
-            if(typeof globalStorageMap !== 'undefined') {
-                globalStorageMap = data.storageMap;
-            } else {
-                window.globalStorageMap = data.storageMap;
-            }
-        }
-        
-        const grid = document.getElementById('grid-container');
-        if (!grid) return;
-        
-        const loader = grid.querySelector('.grid-loading-overlay');
-        if(loader) loader.remove();
-
-        if (!stallsData || stallsData.length === 0) { 
-            grid.innerHTML = '<div class="absolute inset-0 flex items-center justify-center text-gray-500">ไม่พบข้อมูลผังตลาด</div>'; 
-            return; 
-        }
-        
-        let maxRow = 26; 
-        let maxCol = 20; 
-
-        stallsData.forEach(s => {
-            const r = parseInt(s.row) || 0;
-            const c = parseInt(s.col) || 0;
-            if (r > maxRow) maxRow = r;
-            if (c > maxCol) maxCol = c;
-        });
-
-        grid.style.gridTemplateColumns = `repeat(${maxCol}, minmax(45px, 1fr))`;
-
-        const bookingMap = {};
-        bookingsData.forEach(b => bookingMap[b.stallName] = b);
-        
-        const [y, m, d] = selectedDate.split('-').map(Number);
-        const dateObj = new Date(y, m - 1, d);
-        const dayOfWeek = dateObj.getDay();
-        
-        let priceKey = 'priceWed';
-        if (dayOfWeek === 6) priceKey = 'priceSat';
-        if (dayOfWeek === 0) priceKey = 'priceSun';
-        
-        const fragment = document.createDocumentFragment();
-
-        for (let r=1; r<=maxRow; r++) {
-            for (let c=1; c<=maxCol; c++) {
-                const cellId = `stall-${r}-${c}`;
-                const stall = stallsData.find(s => parseInt(s.row) == r && parseInt(s.col) == c);
-                
-                let cell = document.getElementById(cellId);
-                let isUpdate = (cell !== null);
-
-                if (!cell) {
-                    cell = document.createElement('div'); 
-                    cell.id = cellId; 
-                    cell.style.gridRow = r; 
-                    cell.style.gridColumn = c; 
-                }
-                
-                let baseClassName = 'stall-box rounded text-center shadow-sm relative';
-                let finalClassName = baseClassName;
-                let contentHtml = "";
-                
-                if (stall) {
-                    const booking = bookingMap[stall.name];
-                    const storage = (typeof globalStorageMap !== 'undefined') ? globalStorageMap[stall.name] : null;
-                    const price = stall[priceKey];
-                    cell.dataset.name = stall.name;
-                    
-                    contentHtml = `<span class="text-sm font-bold leading-none">${stall.name}</span>`;
-                    let bgClass = "bg-gray-200";
-                    let forcedPurple = false;
-                    
-                    // FIX: Check if Regular Monthly (should behave like daily unpaid - orange)
-                    const isRegularMonthly = (booking && booking.type === "รายเดือน" && booking.note && booking.note.includes("[ลูกค้าประจำ]"));
-
-                    if (booking && booking.type === "รายเดือน" && booking.product && booking.product.trim() !== "" && !isRegularMonthly) { 
-                        bgClass = "bg-monthly"; 
-                        contentHtml += `<div class="text-[10px] mt-0.5 truncate px-1 w-full bg-white bg-opacity-20 rounded font-normal text-white">${booking.product}</div>`; 
-                        forcedPurple = true; 
-                    }
-                    
-                    if (!forcedPurple) {
-                        if (stall.type === "ทางเดิน") { bgClass = "bg-walkway"; contentHtml = ""; }
-                        else if (stall.type === "อื่นๆ") { bgClass = "bg-other"; contentHtml = ""; }
-                        else if (stall.type === "รายเดือน") { bgClass = "bg-monthly"; contentHtml += `<div class="text-[10px] mt-0.5 text-white">รายเดือน</div>`; } 
-                        else {
-                            const isFood = stall.type.includes("อาหาร");
-                            if (booking) {
-                                if (booking.status === "ชำระแล้ว" || booking.status === "ไม่ว่าง") { 
-                                    bgClass = isFood ? "bg-food-occupied" : "bg-cloth-occupied"; 
-                                    contentHtml += `<div class="text-[10px] mt-0.5 truncate px-1 w-full bg-white bg-opacity-20 rounded font-normal">${booking.product}</div>`; 
-                                } else { 
-                                    bgClass = isFood ? "bg-food-unpaid" : "bg-cloth-unpaid"; 
-                                    contentHtml += `<div class="text-[10px] mt-0.5 font-normal">ค้างชำระ</div>`; 
-                                }
-                            } else { 
-                                bgClass = isFood ? "bg-food-free" : "bg-cloth-free"; 
-                                contentHtml += `<div class="text-[10px] mt-0.5 font-normal">${price || '-'}.-</div>`; 
-                            }
-                        }
-                    }
-                    
-                    if (storage) {
-                        contentHtml += `<div class="absolute -top-1 -right-1 bg-white rounded-full p-0.5 shadow border border-gray-300 z-20 text-[10px] cursor-help" title="ฝากของ: ${storage.ownerName}">📦</div>`;
-                    }
-
-                    finalClassName = `${baseClassName} ${bgClass}`;
-                    
-                    if (stall.type !== "ทางเดิน" && stall.type !== "อื่นๆ") { 
-                        finalClassName += ' clickable'; 
-                        cell.onclick = () => {
-                            if(typeof handleStallClick === 'function') handleStallClick(stall, booking);
-                        };
-                    } else { 
-                        finalClassName += ' non-clickable'; 
-                        cell.onclick = null; 
-                    }
-                    
-                    cell.style.visibility = 'visible';
-                } else { 
-                    cell.style.visibility = 'hidden'; 
-                }
-                
-                if (cell.className !== finalClassName) cell.className = finalClassName;
-                if (cell.innerHTML !== contentHtml) cell.innerHTML = contentHtml;
-
-                if (!isUpdate) {
-                    fragment.appendChild(cell);
-                }
-            }
-        }
-
-        if (fragment.childElementCount > 0) {
-            grid.appendChild(fragment);
-        }
     }
 
     function renderQuickDates(preserveSelection = false) {
@@ -396,14 +267,10 @@
     }
 
     function openDashboardModal() {
-        // กรณีที่ 1: เตรียม URL เสร็จแล้ว (ปกติจะเป็นเคสนี้ เพราะเราดึงมารอตั้งแต่เริ่ม)
         if (globalDashboardUrl) {
-            // เปิดทีเดียวจบ! Browser จะไม่ Block เพราะเกิดจากการคลิก และไม่มี Redirect
             window.open(globalDashboardUrl, '_blank');
         } 
-        // กรณีที่ 2: (กันเหนียว) ถ้าเน็ตช้าจัดๆ กดปุ่มก่อนที่ URL จะมา
         else {
-            // ใช้มุกเดิมแก้ขัดไปก่อน
             var newWindow = window.open('', '_blank');
             newWindow.document.write('Loading...');
             
@@ -412,5 +279,42 @@
                 newWindow.location.href = globalDashboardUrl;
             }).getScriptUrl();
         }
+    }
+
+    function confirmLogout() {
+        if(typeof hideModal === 'function') hideModal('logoutModal');
+        
+        auth.signOut().then(() => { console.log("Firebase Signed Out"); });
+
+        currentAdmin = null;
+        localStorage.removeItem(SESSION_KEY);
+        
+        const badge = document.getElementById('admin_badge');
+        if(badge) badge.innerText = "";
+        
+        const avatar = document.getElementById('userAvatar');
+        const defIcon = document.getElementById('defaultUserIcon');
+        if(avatar) avatar.classList.add('hidden');
+        if(defIcon) defIcon.classList.remove('hidden');
+
+        // Hide all admin buttons
+        const elementsToHide = [
+            'btnNextDate', 'btnPrevDate', 'btnArchive', 
+            'btnMonthlyTop', 'btnMonthlyTopMobile',
+            'btnStorageTop', 'btnStorageTopMobile',
+            'btnRefreshCache', 'btnRefreshCacheMobile',
+            'btnSettings', 'btnSettingsMobile',
+            'btnDashboard', 'btnDashboardMobile',
+            'btnPrintMap', 'btnPrintMapMobile' // <--- ปุ่มปริ้น
+        ];
+        elementsToHide.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.classList.add('hidden');
+                el.style.display = ''; 
+            }
+        });
+        
+        fetchData();
     }
 </script>

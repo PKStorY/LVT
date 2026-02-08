@@ -1,8 +1,9 @@
 <script>
     /**
      * Scripts_StorageManagement
-     * Logic สำหรับหน้าจัดการฝากของ (List, Return, Reprint, Move)
-     * FIX: Updated Open/Close Modal logic to work with UI standard
+     * Logic สำหรับหน้าจัดการฝากของ (List View)
+     * หน้าที่: ดึงข้อมูล, กรองข้อมูล, แสดงผลตาราง
+     * Update: แยก Action (Move, Return, Print) ไปไว้ที่ Scripts_Storage.html แล้ว
      */
 
     let storageDataCache = [];
@@ -16,10 +17,10 @@
             return;
         }
 
-        // FIX: Force remove 'hidden' class first (Tailwind)
+        // Force remove 'hidden' class first (Tailwind)
         modal.classList.remove('hidden');
         
-        // FIX: Use shared showModal to handle opacity/pointer-events and body scroll
+        // Use shared showModal to handle opacity/pointer-events and body scroll
         if (typeof showModal === 'function') {
             showModal('storageManagementModal');
         } else {
@@ -32,7 +33,7 @@
     }
 
     function closeStorageManagementModal() {
-        // FIX: Use shared hideModal for animation/cleanup
+        // Use shared hideModal for animation/cleanup
         if (typeof hideModal === 'function') {
             hideModal('storageManagementModal');
         } else {
@@ -58,19 +59,32 @@
                     storageDataCache = res.data;
                     filterStorageList();
                 } else {
-                    showAlert(res.message, "ข้อผิดพลาด", true);
+                    if (typeof showAlert === 'function') {
+                        showAlert(res.message, "ข้อผิดพลาด", true);
+                    } else {
+                        alert(res.message);
+                    }
                 }
             })
             .withFailureHandler((err) => {
                 if (loader) loader.classList.add('hidden');
-                showAlert("Error: " + err, "ข้อผิดพลาด", true);
+                if (typeof showAlert === 'function') {
+                    showAlert("Error: " + err, "ข้อผิดพลาด", true);
+                } else {
+                    console.error(err);
+                }
             })
             .getStorageList();
     }
 
     function filterStorageList() {
-        const searchText = document.getElementById('store_searchInput').value.toLowerCase();
-        const statusFilter = document.getElementById('store_filterStatus').value;
+        const searchInput = document.getElementById('store_searchInput');
+        const filterStatus = document.getElementById('store_filterStatus');
+        
+        if (!searchInput || !filterStatus) return;
+
+        const searchText = searchInput.value.toLowerCase();
+        const statusVal = filterStatus.value;
         const tbody = document.getElementById('store_tableBody');
         const countInfo = document.getElementById('store_countInfo');
         const noData = document.getElementById('store_noData');
@@ -84,8 +98,8 @@
                 (item.phone && item.phone.includes(searchText));
             
             let matchStatus = true;
-            if (statusFilter === 'Active') matchStatus = (item.status === 'Active');
-            if (statusFilter === 'Completed') matchStatus = (item.status === 'Completed');
+            if (statusVal === 'Active') matchStatus = (item.status === 'Active');
+            if (statusVal === 'Completed') matchStatus = (item.status === 'Completed');
             
             return matchSearch && matchStatus;
         });
@@ -139,6 +153,8 @@
                 }
             }
 
+            // Actions: Print is always available. Move/Return only for Active.
+            // Note: These functions are defined in Scripts_Storage.html
             let actions = `
                 <button onclick="handleReprintStorage('${item.id}')" class="text-gray-500 hover:text-blue-600 p-1.5 rounded-full hover:bg-blue-50 transition" title="พิมพ์ตั๋วซ้ำ"><i class="fa-solid fa-print"></i></button>
             `;
@@ -152,8 +168,8 @@
                 `;
             }
 
-            const startStr = formatThaiDateShort(item.startDate);
-            const endStr = formatThaiDateShort(item.endDate);
+            const startStr = (typeof formatThaiDateShort === 'function') ? formatThaiDateShort(item.startDate) : item.startDate;
+            const endStr = (typeof formatThaiDateShort === 'function') ? formatThaiDateShort(item.endDate) : item.endDate;
 
             tr.innerHTML = `
                 <td class="px-4 py-3 text-center text-gray-400 text-xs">${index + 1}</td>
@@ -173,219 +189,5 @@
             `;
             tbody.appendChild(tr);
         });
-    }
-
-    // --- MOVE LOGIC ---
-    function openStorageMoveModal(id, currentLoc) {
-        document.getElementById('mv_storage_id').value = id;
-        document.getElementById('mv_current_location').value = currentLoc;
-        document.getElementById('mv_display_current').innerText = currentLoc;
-        
-        document.getElementById('mv_stallSearch').value = "";
-        document.getElementById('mv_target_stall').value = "";
-        document.getElementById('mv_stallDropdownList').classList.add('hidden');
-        
-        const btnHolding = document.getElementById('opt_move_holding');
-        if (currentLoc === 'Holding Area') {
-            btnHolding.classList.add('hidden');
-        } else {
-            btnHolding.classList.remove('hidden');
-        }
-        
-        validateMoveInput();
-        document.getElementById('storageMoveModal').classList.remove('hidden');
-    }
-
-    function closeStorageMoveModal() {
-        document.getElementById('storageMoveModal').classList.add('hidden');
-    }
-
-    function selectMoveOption(target) {
-        if(target === 'Holding Area') {
-            submitMoveToLocation('Holding Area');
-        }
-    }
-
-    // --- Dropdown Logic ---
-    function toggleMoveStorageDropdown() {
-        const list = document.getElementById('mv_stallDropdownList');
-        if (!list) return;
-        
-        if (list.classList.contains('hidden')) {
-            showMoveStorageStallList();
-        } else {
-            list.classList.add('hidden');
-        }
-    }
-
-    function showMoveStorageStallList() {
-        const list = document.getElementById('mv_stallDropdownList');
-        if (!list) return;
-        
-        list.innerHTML = '';
-        
-        let occupiedStorageStalls = new Set();
-        if (typeof globalStorageMap !== 'undefined') {
-            Object.keys(globalStorageMap).forEach(key => occupiedStorageStalls.add(key));
-        }
-
-        let hasData = false;
-        if (typeof stallsData !== 'undefined' && stallsData.length > 0) {
-            stallsData.forEach(s => {
-                if (s.type === 'ทางเดิน' || s.type === 'อื่นๆ') return;
-                if (occupiedStorageStalls.has(s.name)) return;
-
-                hasData = true;
-                const div = document.createElement('div');
-                div.className = 'mv-move-option px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm border-b last:border-0 flex justify-between';
-                div.dataset.search = s.name.toLowerCase();
-                div.innerHTML = `<span class="font-bold pointer-events-none">${s.name}</span>`;
-                div.onclick = (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    selectMoveStorageStall(s.name);
-                };
-                list.appendChild(div);
-            });
-        } 
-        
-        if (!hasData) {
-            list.innerHTML = '<div class="p-2 text-center text-xs text-gray-400">ไม่พบข้อมูลล็อคว่าง</div>';
-        }
-        
-        list.classList.remove('hidden');
-    }
-
-    function filterMoveStorageStalls() {
-        const input = document.getElementById('mv_stallSearch');
-        const filter = input.value.toLowerCase();
-        const list = document.getElementById('mv_stallDropdownList');
-        
-        if (list.classList.contains('hidden')) {
-             showMoveStorageStallList();
-        } else {
-             if(list.children.length === 0) showMoveStorageStallList();
-        }
-        
-        const options = list.querySelectorAll('.mv-move-option');
-        options.forEach(div => {
-            if (div.dataset.search.includes(filter)) {
-                div.classList.remove('hidden');
-            } else {
-                div.classList.add('hidden');
-            }
-        });
-        
-        document.getElementById('mv_target_stall').value = "";
-        validateMoveInput();
-    }
-
-    function selectMoveStorageStall(name) {
-        document.getElementById('mv_stallSearch').value = name;
-        document.getElementById('mv_target_stall').value = name;
-        document.getElementById('mv_stallDropdownList').classList.add('hidden');
-        validateMoveInput();
-    }
-    
-    document.addEventListener('click', function(e) {
-        const wrapper = document.getElementById('storageMoveModal');
-        const input = document.getElementById('mv_stallSearch');
-        const list = document.getElementById('mv_stallDropdownList');
-        const toggleBtn = wrapper ? wrapper.querySelector('button[onclick*="toggleMoveStorageDropdown"]') : null;
-        
-        if (wrapper && !wrapper.classList.contains('hidden')) {
-             if (e.target !== input && e.target !== list && e.target !== toggleBtn && !toggleBtn?.contains(e.target) && list && !list.contains(e.target)) {
-                 list.classList.add('hidden');
-             }
-        }
-    });
-
-    function validateMoveInput() {
-        const val = document.getElementById('mv_target_stall').value.trim();
-        const btn = document.getElementById('btn_confirm_move_stall');
-        if(val.length > 0) {
-            btn.disabled = false;
-            btn.classList.remove('opacity-50', 'cursor-not-allowed');
-        } else {
-            btn.disabled = true;
-            btn.classList.add('opacity-50', 'cursor-not-allowed');
-        }
-    }
-
-    function submitMoveStorage() {
-        const target = document.getElementById('mv_target_stall').value.trim();
-        if(target) submitMoveToLocation(target.toUpperCase());
-    }
-
-    function submitMoveToLocation(newLocation) {
-        const id = document.getElementById('mv_storage_id').value;
-        const currentLoc = document.getElementById('mv_current_location').value;
-        
-        if (newLocation === currentLoc) {
-            alert("ปลายทางต้องไม่ซ้ำกับตำแหน่งปัจจุบัน");
-            return;
-        }
-
-        showLoader();
-        google.script.run
-            .withSuccessHandler((res) => {
-                hideLoader();
-                if(res.success) {
-                    closeStorageMoveModal();
-                    showAlert(`ย้ายไปยัง ${newLocation} เรียบร้อย`, "สำเร็จ", false);
-                    fetchStorageList(); 
-                    fetchData(true); 
-                } else {
-                    showAlert(res.message, "ข้อผิดพลาด", true);
-                }
-            })
-            .withFailureHandler(err => {
-                hideLoader();
-                showAlert("Error: " + err, "ข้อผิดพลาด", true);
-            })
-            .moveStorageLocation(id, newLocation);
-    }
-
-    function handleReturnStorage(id, stallName) {
-        showConfirm(`ยืนยันการคืนของล็อค ${stallName}? \nรายการจะถูกเปลี่ยนสถานะเป็น "คืนแล้ว"`, "ยืนยันคืนของ", () => {
-            showLoader();
-            google.script.run
-                .withSuccessHandler((res) => {
-                    hideLoader();
-                    if(res.success) {
-                        showAlert(res.message, "สำเร็จ", false);
-                        fetchStorageList(); 
-                        fetchData(true); 
-                    } else {
-                        showAlert(res.message, "ข้อผิดพลาด", true);
-                    }
-                })
-                .withFailureHandler(err => {
-                    hideLoader();
-                    showAlert("Error: " + err, "ข้อผิดพลาด", true);
-                })
-                .completeStorageItem(id);
-        });
-    }
-
-    function handleReprintStorage(id) {
-        const item = storageDataCache.find(x => x.id === id);
-        if (!item) return;
-
-        const officerName = currentAdmin ? (currentAdmin.employeeId || currentAdmin.name) : "System";
-
-        const ticketData = {
-            ownerName: item.ownerName,
-            stallName: item.stallName,
-            amount: "160", 
-            note: item.note,
-            method: "Reprint", 
-            officer: officerName,
-            timestampStr: formatTicketDateTime(new Date()), 
-            startDateStr: formatThaiDateFull(item.startDate),
-            endDateStr: formatThaiDateFull(item.endDate)
-        };
-        
-        printStorageTicket(ticketData);
     }
 </script>
