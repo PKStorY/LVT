@@ -1,13 +1,14 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useBooking } from '@/context/BookingContext';
 import { useAuthAdmin } from '@/context/AuthAdminContext';
 import { cleanStallName, parseNumber, formatPrice } from '@/utils/numberHelper';
 import { getModalDateFormat } from '@/utils/thaiDateHelper';
 import {
   Store, X, Utensils, Shirt, CalendarDays, CheckCircle, AlertCircle,
-  User, Zap, Banknote, Trash2, Plus, FileText, Move, Printer, Camera
+  User, Zap, Banknote, Trash2, Plus, FileText, Move, Printer, Camera,
+  Copy, Check
 } from 'lucide-react';
 
 export default function BookingDetailModal({
@@ -55,6 +56,7 @@ export default function BookingDetailModal({
 }) {
   const { adminUser } = useAuthAdmin();
   const { setMoveTargetDate, setMoveTargetStall, fetchVacantStallsForDate } = useBooking();
+  const [copied, setCopied] = useState(false);
 
   if (!showBookingModal || !selectedStall) return null;
 
@@ -131,24 +133,63 @@ export default function BookingDetailModal({
                     </div>
                   )}
 
-                  {statusInfo.isVacant && (
-                    <div className="flex flex-col gap-2 mt-1">
-                      <a 
-                        href="https://liff.line.me/2008895416-3c35BsXZ"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="w-full py-3.5 bg-[#06C755] hover:bg-[#05b34c] active:scale-98 text-white font-extrabold rounded-xl shadow-md transition-all flex items-center justify-center gap-2.5 text-sm hover:shadow-lg"
-                      >
-                        <img 
-                          src="https://upload.wikimedia.org/wikipedia/commons/4/41/LINE_logo.svg" 
-                          alt="LINE" 
-                          className="w-5 h-5 filter invert" 
-                        />
-                        จองล็อคนี้ผ่าน LINE
-                      </a>
-                      <span className="text-[9px] text-gray-400 font-bold">* ระบบจะนำคุณไปยังห้องแชท LINE เพื่อลงทะเบียนและชำระเงิน</span>
-                    </div>
-                  )}
+                  {statusInfo.isVacant && (() => {
+                    const formattedDateStr = typeof getModalDateFormat === 'function' ? getModalDateFormat(selectedDate) : selectedDate;
+                    const stallNameClean = cleanStallName(selectedStall.name);
+                    const priceVal = statusInfo.price ? `${statusInfo.price} บาท` : 'ตามเรทผังตลาด';
+
+                    const lineMessage = `สวัสดีครับ สนใจจองล็อคตลาดนัดลาดสวายวินเทจ\n📍 ล็อคที่สนใจ: [${stallNameClean}]\n📅 วันที่: ${formattedDateStr}\n💰 ราคา: ${priceVal}\n🛒 สินค้าที่ต้องการขาย: \n\n(หากต้องการเพิ่มล็อค สามารถพิมพ์ชื่อล็อคต่อท้ายได้เลยครับ)`;
+                    const lineDeepLink = `https://line.me/R/oaMessage/@ladsawaivintage/?${encodeURIComponent(lineMessage)}`;
+
+                    const handleCopyMessage = () => {
+                      if (navigator.clipboard) {
+                        navigator.clipboard.writeText(lineMessage);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2500);
+                      }
+                    };
+
+                    return (
+                      <div className="flex flex-col gap-2.5 mt-2">
+                        {/* Preview Box of pre-filled text */}
+                        <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-xl p-3 text-left">
+                          <div className="flex items-center justify-between text-[11px] font-bold text-emerald-900 mb-1.5">
+                            <span>💬 ข้อความที่จะนำไปใส่ในแชท LINE:</span>
+                            <button
+                              type="button"
+                              onClick={handleCopyMessage}
+                              className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 hover:text-emerald-900 bg-white/80 px-2 py-0.5 rounded border border-emerald-200 shadow-2xs hover:bg-white cursor-pointer transition-all active:scale-95"
+                            >
+                              {copied ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
+                              <span>{copied ? "คัดลอกแล้ว" : "คัดลอกข้อความ"}</span>
+                            </button>
+                          </div>
+                          <div className="text-[11px] text-gray-700 bg-white/90 p-2.5 rounded-lg border border-emerald-100 font-mono whitespace-pre-line leading-relaxed select-all">
+                            {lineMessage}
+                          </div>
+                        </div>
+
+                        {/* LINE Deep Link Action Button */}
+                        <a 
+                          href={lineDeepLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="w-full py-3.5 bg-[#06C755] hover:bg-[#05b34c] active:scale-98 text-white font-extrabold rounded-xl shadow-md transition-all flex items-center justify-center gap-2.5 text-sm hover:shadow-lg cursor-pointer"
+                        >
+                          <img 
+                            src="https://upload.wikimedia.org/wikipedia/commons/4/41/LINE_logo.svg" 
+                            alt="LINE" 
+                            className="w-5 h-5 filter invert" 
+                          />
+                          จองล็อคนี้ผ่าน LINE (@ladsawaivintage)
+                        </a>
+
+                        <span className="text-[10px] text-gray-500 font-medium text-center">
+                          * ระบบจะเปิดแชท LINE และใส่ข้อความให้อัตโนมัติ สามารถพิมพ์เพิ่มล็อคหรือสินค้าก่อนกดส่งได้ครับ
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </>
               );
             })()}
